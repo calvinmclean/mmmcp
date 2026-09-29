@@ -22,9 +22,22 @@ type discoveryResult struct {
 }
 
 func compile(ctx context.Context, cfg *config.Config, discoverer component.Discoverer) (*Catalog, error) {
+	if !cfg.ToolSearchMode.Valid() {
+		return nil, fmt.Errorf("invalid tool search mode %q", cfg.ToolSearchMode)
+	}
 	result := newCompileCatalog()
+	result.reserveSynthetic = cfg.ToolSearchMode == config.ToolSearchSearch || cfg.ToolSearchMode == config.ToolSearchHybrid
+	componentIDs := make(map[string]bool, len(cfg.Servers))
 	prefixes := make([]string, len(cfg.Servers))
 	for i, server := range cfg.Servers {
+		id := server.ID
+		if id == "" {
+			id = server.Name
+		}
+		if componentIDs[id] {
+			return nil, fmt.Errorf("duplicate component ID %q", id)
+		}
+		componentIDs[id] = true
 		if len(cfg.Servers) <= 1 && server.Prefix == "" {
 			continue
 		}
@@ -51,7 +64,14 @@ func compile(ctx context.Context, cfg *config.Config, discoverer component.Disco
 			return nil, err
 		}
 	}
-	return newCatalog(result)
+	compiled, err := newCatalog(result)
+	if err != nil || cfg.ToolSearchMode == "" || cfg.ToolSearchMode == config.ToolSearchOff {
+		return compiled, err
+	}
+	if err := compiled.BuildSearchIndex(); err != nil {
+		return nil, err
+	}
+	return compiled, nil
 }
 
 func newCompileCatalog() *Catalog {
@@ -157,6 +177,9 @@ func compileTools(c *Catalog, server config.Server, prefix string, discovered []
 		}
 		if existing, ok := c.toolRoutes[name]; ok {
 			return collision("tool name", name, existing.Component.Name, server.Name)
+		}
+		if c.reserveSynthetic && (name == SearchToolName || name == CallToolName) {
+			return fmt.Errorf("tool name %q is reserved; change the component prefix or tool override", name)
 		}
 		clone := *tool
 		clone.Name = name

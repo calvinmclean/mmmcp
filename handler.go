@@ -2,6 +2,7 @@ package mmmcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"sync"
@@ -20,20 +21,25 @@ func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
 			mu                  sync.Mutex
 			previous            *catalog.Catalog
 			previousFingerprint string
+			previousMode        config.ToolSearchMode
 		)
 		handler := func(ctx context.Context, method string, request mcp.Request) (mcp.Result, error) {
 			compiled, fingerprint, err := c.catalogForRequest(ctx, request)
 			if err != nil {
 				return nil, err
 			}
+			mode := c.configForRequest(ctx, request).ToolSearchMode
+			if !mode.Valid() {
+				return nil, fmt.Errorf("invalid tool search mode %q", mode)
+			}
 			if id, ok := ConfigIDFromContext(ctx); ok && request.GetSession().ID() == "" {
-				if cleanup := c.toolSubscriptions.observe(id, method, server, compiled, fingerprint); cleanup != nil {
+				if cleanup := c.toolSubscriptions.observe(id, method, server, compiled, fingerprint, mode); cleanup != nil {
 					defer cleanup()
 				}
 			} else {
 				mu.Lock()
-				toolsChanged := previous != nil && previousFingerprint != fingerprint && !reflect.DeepEqual(previous.Tools(), compiled.Tools())
-				previous, previousFingerprint = compiled, fingerprint
+				toolsChanged := previous != nil && previousFingerprint != fingerprint && (previousMode != mode || !reflect.DeepEqual(previous.Tools(), compiled.Tools()))
+				previous, previousFingerprint, previousMode = compiled, fingerprint, mode
 				mu.Unlock()
 				if toolsChanged && method != "tools/list" {
 					notifyFeatureChanged(server, component.FeatureTools)
@@ -48,11 +54,11 @@ func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
 				if req.Params == nil {
 					req.Params = &mcp.ListToolsParams{}
 				}
-				values, nextCursor, err := compiled.PageTools(req.Params.Cursor, c.pageSize)
+				values, nextCursor, err := compiled.PageToolsMode(string(mode), req.Params.Cursor, c.pageSize)
 				if err != nil {
 					return nil, err
 				}
-				return &mcp.ListToolsResult{CacheScope: "public", Tools: values, NextCursor: nextCursor}, nil
+				return &mcp.ListToolsResult{CacheScope: "private", Tools: values, NextCursor: nextCursor}, nil
 			case "prompts/list":
 				req, ok := request.(*mcp.ListPromptsRequest)
 				if !ok {
@@ -93,7 +99,7 @@ func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
 				}
 				return &mcp.ListResourceTemplatesResult{CacheScope: "public", ResourceTemplates: values, NextCursor: nextCursor}, nil
 			case "tools/call":
-				return c.callTool(ctx, request, compiled, fingerprint)
+				return c.callToolMode(ctx, request, compiled, fingerprint, mode)
 			case "prompts/get":
 				return c.getPrompt(ctx, request, compiled, fingerprint)
 			case "resources/read":
@@ -126,20 +132,63 @@ func (c *Composite) configForRequest(ctx context.Context, request mcp.Request) *
 	return effectiveConfig(ctx, c.defaultConfig)
 }
 
-func (c *Composite) callTool(ctx context.Context, request mcp.Request, compiled *catalog.Catalog, fingerprint string) (mcp.Result, error) {
+func (c *Composite) callToolMode(ctx context.Context, request mcp.Request, compiled *catalog.Catalog, fingerprint string, mode config.ToolSearchMode) (mcp.Result, error) {
 	req, ok := request.(*mcp.CallToolRequest)
 	if !ok || req.Params == nil {
 		return nil, invalidRequest("tools/call")
+	}
+	if (mode == config.ToolSearchSearch || mode == config.ToolSearchHybrid) && (req.Params.Name == catalog.SearchToolName || req.Params.Name == catalog.CallToolName) {
+		if req.Params.Name == catalog.SearchToolName {
+			return compiled.SearchTool(ctx, req.Params.Arguments)
+		}
+		return c.callReferencedTool(ctx, request, compiled, fingerprint)
+	}
+	if mode == config.ToolSearchSearch {
+		return nil, unknown("tool", req.Params.Name)
 	}
 	route, ok := compiled.RouteTool(req.Params.Name)
 	if !ok {
 		return nil, unknown("tool", req.Params.Name)
 	}
-	ctx = component.ContextWithToolCall(ctx, route.Tool, req.Params.Arguments)
+	return c.executeTool(ctx, request, compiled, fingerprint, route, req.Params.Arguments)
+}
+
+func (c *Composite) callReferencedTool(ctx context.Context, request mcp.Request, compiled *catalog.Catalog, fingerprint string) (mcp.Result, error) {
+	req := request.(*mcp.CallToolRequest)
+	var args struct {
+		Tool      catalog.ToolReference `json:"tool"`
+		Revision  string                `json:"revision"`
+		Arguments json.RawMessage       `json:"arguments"`
+	}
+	data, err := json.Marshal(req.Params.Arguments)
+	if err != nil || json.Unmarshal(data, &args) != nil || args.Tool.ComponentID == "" || args.Tool.Name == "" || args.Revision == "" {
+		return toolFailure("INVALID_ARGUMENTS", "tool, revision, and arguments are required"), nil
+	}
+	route, _, revision, ok := compiled.RouteReference(args.Tool)
+	if !ok {
+		return toolFailure("TOOL_UNAVAILABLE", "tool is unavailable"), nil
+	}
+	if revision != args.Revision {
+		return toolFailure("STALE_TOOL_REFERENCE", "tool changed; search again"), nil
+	}
+	arguments := json.RawMessage(args.Arguments)
+	if len(args.Arguments) == 0 {
+		arguments = json.RawMessage(`{}`)
+	}
+	return c.executeTool(ctx, request, compiled, fingerprint, route, arguments)
+}
+
+func toolFailure(code, message string) *mcp.CallToolResult {
+	return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: code + ": " + message}}}
+}
+
+func (c *Composite) executeTool(ctx context.Context, request mcp.Request, compiled *catalog.Catalog, fingerprint string, route catalog.ToolRoute, arguments json.RawMessage) (mcp.Result, error) {
+	req := request.(*mcp.CallToolRequest)
+	ctx = component.ContextWithToolCall(ctx, route.Tool, arguments)
 	params := &mcp.CallToolParams{
 		Meta:           component.DownstreamMeta(req.Params.Meta),
 		Name:           route.Tool.Name,
-		Arguments:      req.Params.Arguments,
+		Arguments:      arguments,
 		InputResponses: req.Params.InputResponses,
 		RequestState:   req.Params.RequestState,
 	}

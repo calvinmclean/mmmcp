@@ -13,6 +13,20 @@ type ToolRoute struct {
 	Tool      *mcp.Tool
 }
 
+// ToolReference survives display-name and prefix changes.
+type ToolReference struct {
+	ComponentID string `json:"componentID"`
+	Name        string `json:"name"`
+}
+
+func (r ToolRoute) Reference() ToolReference {
+	id := r.Component.ID
+	if id == "" {
+		id = r.Component.Name
+	}
+	return ToolReference{ComponentID: id, Name: r.Tool.Name}
+}
+
 // PromptRoute maps an exposed prompt identity back to its component identity.
 type PromptRoute struct {
 	Component    config.Server

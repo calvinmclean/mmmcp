@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/blevesearch/bleve/v2"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -20,6 +22,8 @@ type Catalog struct {
 	resources         []*mcp.Resource
 	resourceTemplates []*mcp.ResourceTemplate
 	toolRoutes        map[string]ToolRoute
+	searchIndex       bleve.Index
+	reserveSynthetic  bool
 	promptRoutes      map[string]PromptRoute
 	resourceRoutes    map[string]ResourceRoute
 	templateRoutes    []ResourceTemplateRoute

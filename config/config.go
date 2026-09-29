@@ -6,15 +6,36 @@ import (
 
 // Config is a complete composite server configuration.
 type Config struct {
-	Name        string
-	Version     string
-	Listen      string
-	IdleTimeout time.Duration
-	Servers     []Server
+	Name    string
+	Version string
+	// ToolSearchMode controls direct and generic tool access. Empty means off.
+	ToolSearchMode ToolSearchMode
+	Listen         string
+	IdleTimeout    time.Duration
+	Servers        []Server
+}
+
+type ToolSearchMode string
+
+const (
+	ToolSearchOff    ToolSearchMode = "off"
+	ToolSearchSearch ToolSearchMode = "search"
+	ToolSearchHybrid ToolSearchMode = "hybrid"
+)
+
+func (m ToolSearchMode) Valid() bool {
+	switch m {
+	case "", ToolSearchOff, ToolSearchSearch, ToolSearchHybrid:
+		return true
+	default:
+		return false
+	}
 }
 
 // Server describes one component MCP server.
 type Server struct {
+	// ID is the stable component identity used by generic invocation.
+	ID string
 	// DiscoveryRevision participates in the complete configuration fingerprint only.
 	DiscoveryRevision  string
 	Name               string
@@ -75,14 +96,16 @@ type ResourceTemplateOverride struct {
 }
 
 type configDTO struct {
-	Name        string        `yaml:"name"`
-	Version     string        `yaml:"version"`
-	Listen      string        `yaml:"listen"`
-	IdleTimeout durationValue `yaml:"idleTimeout"`
-	Servers     []serverDTO   `yaml:"servers"`
+	Name           string         `yaml:"name"`
+	Version        string         `yaml:"version"`
+	ToolSearchMode ToolSearchMode `yaml:"toolSearchMode"`
+	Listen         string         `yaml:"listen"`
+	IdleTimeout    durationValue  `yaml:"idleTimeout"`
+	Servers        []serverDTO    `yaml:"servers"`
 }
 
 type serverDTO struct {
+	ID                 string                        `yaml:"id"`
 	DiscoveryRevision  string                        `yaml:"discoveryRevision"`
 	Name               string                        `yaml:"name"`
 	Prefix             string                        `yaml:"prefix"`
