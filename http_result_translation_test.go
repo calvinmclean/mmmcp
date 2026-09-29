@@ -12,6 +12,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/obot-platform/mmmcp"
+	"github.com/obot-platform/mmmcp/catalog"
 	"github.com/obot-platform/mmmcp/config"
 	"github.com/obot-platform/mmmcp/testserver"
 )
@@ -87,6 +88,47 @@ func TestLegacyFrontendOperationResultsFromStatelessHTTPDownstream(t *testing.T)
 				t.Fatalf("legacy result contains resultType: %s", mustMarshal(t, result))
 			}
 		})
+	}
+}
+
+func TestSyntheticToolResultsUseFrontendProtocol(t *testing.T) {
+	fixture := testserver.New(t, testserver.Options{Tools: []testserver.Tool{{
+		Definition: &mcp.Tool{Name: "echo", InputSchema: map[string]any{"type": "object"}},
+		Handler: func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}, nil
+		},
+	}}})
+	composite, err := mmmcp.New(t.Context(), &config.Config{ToolSearchMode: config.ToolSearchSearch, Servers: []config.Server{{Name: "fixture", URL: fixture.URL}}}, mmmcp.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = composite.Close() })
+	frontend := httptest.NewServer(composite.HTTPHandler())
+	t.Cleanup(frontend.Close)
+	meta := map[string]any{mcp.MetaKeyProtocolVersion: "2026-07-28", mcp.MetaKeyClientCapabilities: map[string]any{}}
+	call := func(name string, args map[string]any) map[string]json.RawMessage {
+		return rawOperationCall(t, frontend, "tools/call", map[string]any{"name": name, "arguments": args}, meta, "2026-07-28", "")
+	}
+	search := call(catalog.SearchToolName, map[string]any{"query": "echo"})
+	if got := rawString(t, search["resultType"]); got != "complete" {
+		t.Fatalf("search resultType = %q, want complete", got)
+	}
+	var found catalog.SearchResults
+	if err := json.Unmarshal(search["structuredContent"], &found); err != nil || len(found.Tools) != 1 {
+		t.Fatalf("search results = %+v, err = %v", found, err)
+	}
+	for _, invocation := range []map[string]any{
+		{"tool": found.Tools[0].Reference, "revision": found.Tools[0].Revision, "arguments": map[string]any{}},
+		{"tool": found.Tools[0].Reference, "revision": "stale", "arguments": map[string]any{}},
+	} {
+		result := call(catalog.CallToolName, invocation)
+		if got := rawString(t, result["resultType"]); got != "complete" {
+			t.Fatalf("generic resultType = %q, want complete", got)
+		}
+	}
+	invalid := call(catalog.SearchToolName, map[string]any{"query": ""})
+	if got := rawString(t, invalid["resultType"]); got != "complete" {
+		t.Fatalf("invalid search resultType = %q, want complete", got)
 	}
 }
 

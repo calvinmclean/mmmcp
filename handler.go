@@ -139,7 +139,11 @@ func (c *Composite) callToolMode(ctx context.Context, request mcp.Request, compi
 	}
 	if (mode == config.ToolSearchSearch || mode == config.ToolSearchHybrid) && (req.Params.Name == catalog.SearchToolName || req.Params.Name == catalog.CallToolName) {
 		if req.Params.Name == catalog.SearchToolName {
-			return compiled.SearchTool(ctx, req.Params.Arguments)
+			result, err := compiled.SearchTool(ctx, req.Params.Arguments)
+			if err != nil {
+				return nil, err
+			}
+			return normalizeCallToolResult(request, result)
 		}
 		return c.callReferencedTool(ctx, request, compiled, fingerprint)
 	}
@@ -162,14 +166,14 @@ func (c *Composite) callReferencedTool(ctx context.Context, request mcp.Request,
 	}
 	data, err := json.Marshal(req.Params.Arguments)
 	if err != nil || json.Unmarshal(data, &args) != nil || args.Tool.ComponentID == "" || args.Tool.Name == "" || args.Revision == "" {
-		return toolFailure("INVALID_ARGUMENTS", "tool, revision, and arguments are required"), nil
+		return toolFailure(request, "INVALID_ARGUMENTS", "tool, revision, and arguments are required")
 	}
 	route, _, revision, ok := compiled.RouteReference(args.Tool)
 	if !ok {
-		return toolFailure("TOOL_UNAVAILABLE", "tool is unavailable"), nil
+		return toolFailure(request, "TOOL_UNAVAILABLE", "tool is unavailable")
 	}
 	if revision != args.Revision {
-		return toolFailure("STALE_TOOL_REFERENCE", "tool changed; search again"), nil
+		return toolFailure(request, "STALE_TOOL_REFERENCE", "tool changed; search again")
 	}
 	arguments := json.RawMessage(args.Arguments)
 	if len(args.Arguments) == 0 {
@@ -178,8 +182,8 @@ func (c *Composite) callReferencedTool(ctx context.Context, request mcp.Request,
 	return c.executeTool(ctx, request, compiled, fingerprint, route, arguments)
 }
 
-func toolFailure(code, message string) *mcp.CallToolResult {
-	return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: code + ": " + message}}}
+func toolFailure(request mcp.Request, code, message string) (*mcp.CallToolResult, error) {
+	return normalizeCallToolResult(request, &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: code + ": " + message}}})
 }
 
 func (c *Composite) executeTool(ctx context.Context, request mcp.Request, compiled *catalog.Catalog, fingerprint string, route catalog.ToolRoute, arguments json.RawMessage) (mcp.Result, error) {
