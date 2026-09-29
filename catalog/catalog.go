@@ -8,9 +8,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/blevesearch/bleve/v2"
-
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/obot-platform/mmmcp/toolsearch"
 )
 
 // Catalog is an immutable, sorted composite feature snapshot.
@@ -22,7 +21,7 @@ type Catalog struct {
 	resources         []*mcp.Resource
 	resourceTemplates []*mcp.ResourceTemplate
 	toolRoutes        map[string]ToolRoute
-	searchIndex       bleve.Index
+	searchIndex       *toolsearch.Index
 	reserveSynthetic  bool
 	promptRoutes      map[string]PromptRoute
 	resourceRoutes    map[string]ResourceRoute

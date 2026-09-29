@@ -16,5 +16,12 @@ func Compile(ctx context.Context, cfg *config.Config, discoverer component.Disco
 	if discoverer == nil {
 		return nil, fmt.Errorf("catalog: nil discoverer")
 	}
-	return compile(ctx, cfg, discoverer)
+	compiled, err := compile(ctx, cfg, discoverer)
+	if err != nil {
+		return nil, err
+	}
+	if err := compiled.BuildSearchIndex(ctx); err != nil {
+		return nil, err
+	}
+	return compiled, nil
 }

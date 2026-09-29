@@ -17,9 +17,16 @@ const (
 	refreshDebounce = 10 * time.Millisecond
 )
 
+var (
+	// ErrCatalogUnavailable means a search-enabled catalog must refresh before use.
+	ErrCatalogUnavailable = fmt.Errorf("CATALOG_UNAVAILABLE: tool catalog is refreshing; retry")
+)
+
 // Registry caches immutable catalogs by complete configuration fingerprint.
 type Registry struct {
 	discoverer component.Discoverer
+	ctx        context.Context
+	cancel     context.CancelFunc
 
 	mu      sync.Mutex
 	entries map[string]*registryEntry
@@ -39,12 +46,10 @@ type registryEntry struct {
 	refreshed  time.Time
 }
 
-// ErrCatalogUnavailable means a search-enabled catalog must refresh before use.
-var ErrCatalogUnavailable = fmt.Errorf("CATALOG_UNAVAILABLE: tool catalog is refreshing; retry")
-
 // NewRegistry creates a catalog registry.
 func NewRegistry(discoverer component.Discoverer) *Registry {
-	return &Registry{discoverer: discoverer, entries: make(map[string]*registryEntry)}
+	ctx, cancel := context.WithCancel(context.Background())
+	return &Registry{discoverer: discoverer, ctx: ctx, cancel: cancel, entries: make(map[string]*registryEntry)}
 }
 
 // Fingerprint returns a stable, non-reversible digest of a complete configuration.
@@ -94,7 +99,10 @@ func (r *Registry) Get(ctx context.Context, cfg *config.Config) (*Catalog, strin
 	r.entries[fingerprint] = entry
 	r.mu.Unlock()
 
-	entry.catalog, entry.err = Compile(ctx, cfg, r.discoverer)
+	entry.catalog, entry.err = compile(ctx, cfg, r.discoverer)
+	if entry.err == nil {
+		entry.catalog.StartSearchIndex(r.ctx)
+	}
 	r.mu.Lock()
 	if entry.err != nil {
 		delete(r.entries, fingerprint)
@@ -112,7 +120,7 @@ func (r *Registry) Refresh(ctx context.Context, cfg *config.Config) (*Catalog, s
 	if err != nil {
 		return nil, "", err
 	}
-	compiled, err := Compile(ctx, cfg, r.discoverer)
+	compiled, err := compile(ctx, cfg, r.discoverer)
 	if err != nil {
 		if cfg.ToolSearchMode != "" && cfg.ToolSearchMode != config.ToolSearchOff {
 			r.mu.Lock()
@@ -125,9 +133,14 @@ func (r *Registry) Refresh(ctx context.Context, cfg *config.Config) (*Catalog, s
 	}
 	entry := &registryEntry{ready: make(chan struct{}), catalog: compiled, config: cfg, refreshed: time.Now()}
 	close(entry.ready)
+	compiled.StartSearchIndex(r.ctx)
 	r.mu.Lock()
+	old := r.entries[fingerprint]
 	r.entries[fingerprint] = entry
 	r.mu.Unlock()
+	if old != nil {
+		old.catalog.StopSearchIndex()
+	}
 	return compiled, fingerprint, nil
 }
 
@@ -174,7 +187,7 @@ func (r *Registry) runRefresh(fingerprint string) {
 	entry.callbacks = nil
 	r.mu.Unlock()
 
-	compiled, err := Compile(context.Background(), cfg, r.discoverer)
+	compiled, err := compile(context.Background(), cfg, r.discoverer)
 
 	r.mu.Lock()
 	entry = r.entries[fingerprint]
@@ -183,10 +196,13 @@ func (r *Registry) runRefresh(fingerprint string) {
 		return
 	}
 	if err == nil {
+		compiled.StartSearchIndex(r.ctx)
+		old := entry.catalog
 		entry.catalog = compiled
 		entry.err = nil
 		entry.stale = false
 		entry.refreshed = time.Now()
+		old.StopSearchIndex()
 	}
 	entry.refreshing = false
 	pending := entry.pending
@@ -207,7 +223,9 @@ func (r *Registry) Close() {
 	}
 	r.mu.Lock()
 	r.closed = true
+	r.cancel()
 	for _, entry := range r.entries {
+		entry.catalog.StopSearchIndex()
 		if entry.timer != nil {
 			entry.timer.Stop()
 			entry.timer = nil

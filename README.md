@@ -79,16 +79,16 @@ resources are unaffected.
 
 `toolSearchMode` accepts `off` (the default), `search`, and `hybrid`. `off`
 lists and calls component tools directly. `search` lists only
-`obot_search_tools` and `obot_call_tool` and rejects direct calls to component
+`mmmcp_search_tools` and `mmmcp_call_tool` and rejects direct calls to component
 tools, even when their names are known. `hybrid` offers both access paths.
 Every path uses the same configured tool selection. Reserved tool-name
 collisions stop catalog compilation; change the component prefix or override.
 
-`obot_search_tools` accepts `query` and optional `limit` (default 5, maximum
+`mmmcp_search_tools` accepts `query` and optional `limit` (default 5, maximum
 20). Results contain the effective tool definition, including its input schema,
 plus a stable `{componentID, name}` reference and a revision. Results are ranked
 locally using Bleve BM25 over tool names, descriptions, component names, and
-input parameter names and descriptions. `obot_call_tool` accepts the returned
+input parameter names and descriptions. `mmmcp_call_tool` accepts the returned
 `tool`, `revision`, and `arguments`. It rechecks the current catalog on every
 call, returning `TOOL_UNAVAILABLE` for an excluded or removed tool and
 `STALE_TOOL_REFERENCE` when the tool changed. The optional component `id` is
@@ -99,6 +99,12 @@ notification or after one minute on the next request. During a known refresh
 or after its failure, requests return `CATALOG_UNAVAILABLE` until rediscovery
 succeeds. Components that do not send notifications can therefore remain
 unchanged in search results for up to one minute.
+
+For running composites, search indexes build in the background after component
+discovery. Search calls wait up to 30 seconds for the index; if it is still
+unavailable they return `SEARCH_INDEX_NOT_READY` and can be retried. Failed
+index builds retry with backoff. Tool listings and calls by current reference
+do not wait for indexing.
 
 Each server accepts an optional `discoveryRevision` string (default empty, not
 interpolated). Set it to a fresh revision to trigger rediscovery when the updated

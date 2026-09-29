@@ -9,6 +9,7 @@ import (
 	"github.com/obot-platform/mmmcp/component"
 	"github.com/obot-platform/mmmcp/config"
 	"github.com/obot-platform/mmmcp/namespace"
+	"github.com/obot-platform/mmmcp/toolsearch"
 	"github.com/yosida95/uritemplate/v3"
 )
 
@@ -68,9 +69,7 @@ func compile(ctx context.Context, cfg *config.Config, discoverer component.Disco
 	if err != nil || cfg.ToolSearchMode == "" || cfg.ToolSearchMode == config.ToolSearchOff {
 		return compiled, err
 	}
-	if err := compiled.BuildSearchIndex(); err != nil {
-		return nil, err
-	}
+	compiled.searchIndex = toolsearch.New(compiled.searchDocuments())
 	return compiled, nil
 }
 
@@ -178,7 +177,7 @@ func compileTools(c *Catalog, server config.Server, prefix string, discovered []
 		if existing, ok := c.toolRoutes[name]; ok {
 			return collision("tool name", name, existing.Component.Name, server.Name)
 		}
-		if c.reserveSynthetic && (name == SearchToolName || name == CallToolName) {
+		if c.reserveSynthetic && (name == toolsearch.SearchToolName || name == toolsearch.CallToolName) {
 			return fmt.Errorf("tool name %q is reserved; change the component prefix or tool override", name)
 		}
 		clone := *tool

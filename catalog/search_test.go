@@ -11,6 +11,7 @@ import (
 )
 
 type searchDiscoverer struct{}
+type collisionDiscoverer struct{}
 
 func (searchDiscoverer) Discover(_ context.Context, server config.Server) (*component.Features, error) {
 	if server.ID == "two" {
@@ -70,8 +71,6 @@ func TestSearchReservedToolCollision(t *testing.T) {
 		t.Fatalf("off mode should allow existing component name: %v", err)
 	}
 }
-
-type collisionDiscoverer struct{}
 
 func (collisionDiscoverer) Discover(context.Context, config.Server) (*component.Features, error) {
 	return &component.Features{Tools: []*mcp.Tool{{Name: catalog.SearchToolName, InputSchema: map[string]any{"type": "object"}}}}, nil

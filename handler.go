@@ -12,6 +12,7 @@ import (
 	"github.com/obot-platform/mmmcp/catalog"
 	"github.com/obot-platform/mmmcp/component"
 	"github.com/obot-platform/mmmcp/config"
+	"github.com/obot-platform/mmmcp/toolsearch"
 )
 
 func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
@@ -137,8 +138,8 @@ func (c *Composite) callToolMode(ctx context.Context, request mcp.Request, compi
 	if !ok || req.Params == nil {
 		return nil, invalidRequest("tools/call")
 	}
-	if (mode == config.ToolSearchSearch || mode == config.ToolSearchHybrid) && (req.Params.Name == catalog.SearchToolName || req.Params.Name == catalog.CallToolName) {
-		if req.Params.Name == catalog.SearchToolName {
+	if (mode == config.ToolSearchSearch || mode == config.ToolSearchHybrid) && (req.Params.Name == toolsearch.SearchToolName || req.Params.Name == toolsearch.CallToolName) {
+		if req.Params.Name == toolsearch.SearchToolName {
 			result, err := compiled.SearchTool(ctx, req.Params.Arguments)
 			if err != nil {
 				return nil, err
@@ -159,13 +160,8 @@ func (c *Composite) callToolMode(ctx context.Context, request mcp.Request, compi
 
 func (c *Composite) callReferencedTool(ctx context.Context, request mcp.Request, compiled *catalog.Catalog, fingerprint string) (mcp.Result, error) {
 	req := request.(*mcp.CallToolRequest)
-	var args struct {
-		Tool      catalog.ToolReference `json:"tool"`
-		Revision  string                `json:"revision"`
-		Arguments json.RawMessage       `json:"arguments"`
-	}
-	data, err := json.Marshal(req.Params.Arguments)
-	if err != nil || json.Unmarshal(data, &args) != nil || args.Tool.ComponentID == "" || args.Tool.Name == "" || args.Revision == "" {
+	args, err := toolsearch.ParseCallArguments(req.Params.Arguments)
+	if err != nil {
 		return toolFailure(request, "INVALID_ARGUMENTS", "tool, revision, and arguments are required")
 	}
 	route, _, revision, ok := compiled.RouteReference(args.Tool)
@@ -175,11 +171,7 @@ func (c *Composite) callReferencedTool(ctx context.Context, request mcp.Request,
 	if revision != args.Revision {
 		return toolFailure(request, "STALE_TOOL_REFERENCE", "tool changed; search again")
 	}
-	arguments := json.RawMessage(args.Arguments)
-	if len(args.Arguments) == 0 {
-		arguments = json.RawMessage(`{}`)
-	}
-	return c.executeTool(ctx, request, compiled, fingerprint, route, arguments)
+	return c.executeTool(ctx, request, compiled, fingerprint, route, args.Arguments)
 }
 
 func toolFailure(request mcp.Request, code, message string) (*mcp.CallToolResult, error) {

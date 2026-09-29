@@ -8,9 +8,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/obot-platform/mmmcp"
-	"github.com/obot-platform/mmmcp/catalog"
 	"github.com/obot-platform/mmmcp/config"
 	"github.com/obot-platform/mmmcp/testserver"
+	"github.com/obot-platform/mmmcp/toolsearch"
 )
 
 func TestToolSearchModesAndGenericInvocation(t *testing.T) {
@@ -53,45 +53,45 @@ func TestToolSearchModesAndGenericInvocation(t *testing.T) {
 				t.Fatalf("direct call failed: %v %+v", directErr, direct)
 			}
 			if mode == config.ToolSearchOff {
-				if _, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: catalog.SearchToolName, Arguments: map[string]any{"query": "invoice"}}); err == nil {
+				if _, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: toolsearch.SearchToolName, Arguments: map[string]any{"query": "invoice"}}); err == nil {
 					t.Fatal("search tool was callable in off mode")
 				}
 				return
 			}
-			found, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: catalog.SearchToolName, Arguments: map[string]any{"query": "invoice"}})
+			found, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: toolsearch.SearchToolName, Arguments: map[string]any{"query": "invoice"}})
 			if err != nil || found.IsError {
 				t.Fatalf("search failed: %v %+v", err, found)
 			}
-			var results catalog.SearchResults
+			var results toolsearch.Results
 			if err := json.Unmarshal([]byte(found.Content[0].(*mcp.TextContent).Text), &results); err != nil {
 				t.Fatal(err)
 			}
-			if len(results.Tools) != 1 || results.Tools[0].Reference != (catalog.ToolReference{ComponentID: "component-1", Name: "lookup"}) || results.Tools[0].Tool.InputSchema == nil {
+			if len(results.Tools) != 1 || results.Tools[0].Reference != (toolsearch.Reference{ComponentID: "component-1", Name: "lookup"}) || results.Tools[0].Tool.InputSchema == nil {
 				t.Fatalf("search results: %+v", results)
 			}
 			invoke := map[string]any{"tool": results.Tools[0].Reference, "revision": results.Tools[0].Revision, "arguments": map[string]any{"number": "456"}}
-			called, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: catalog.CallToolName, Arguments: invoke})
+			called, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: toolsearch.CallToolName, Arguments: invoke})
 			if err != nil || called.IsError || called.Content[0].(*mcp.TextContent).Text != `{"number":"456"}` {
 				t.Fatalf("generic call failed: %v %+v", err, called)
 			}
 			invoke["revision"] = "old"
-			stale, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: catalog.CallToolName, Arguments: invoke})
+			stale, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: toolsearch.CallToolName, Arguments: invoke})
 			if err != nil || !stale.IsError {
 				t.Fatalf("stale revision should fail: %v %+v", err, stale)
 			}
 			cfg.Servers[0].DiscoveryRevision = "upgraded"
 			invoke["revision"] = results.Tools[0].Revision
-			upgraded, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: catalog.CallToolName, Arguments: invoke})
+			upgraded, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: toolsearch.CallToolName, Arguments: invoke})
 			if err != nil || !upgraded.IsError || upgraded.Content[0].(*mcp.TextContent).Text != "STALE_TOOL_REFERENCE: tool changed; search again" {
 				t.Fatalf("snapshot upgrade should require rediscovery: %v %+v", err, upgraded)
 			}
 			cfg.Servers[0].DisableTools = true
 			invoke["revision"] = results.Tools[0].Revision
-			revoked, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: catalog.CallToolName, Arguments: invoke})
+			revoked, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: toolsearch.CallToolName, Arguments: invoke})
 			if err != nil || !revoked.IsError || revoked.Content[0].(*mcp.TextContent).Text != "TOOL_UNAVAILABLE: tool is unavailable" {
 				t.Fatalf("revoked tool should be unavailable: %v %+v", err, revoked)
 			}
-			afterRevoke, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: catalog.SearchToolName, Arguments: map[string]any{"query": "invoice"}})
+			afterRevoke, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: toolsearch.SearchToolName, Arguments: map[string]any{"query": "invoice"}})
 			if err != nil || afterRevoke.IsError {
 				t.Fatalf("search after revocation failed: %v %+v", err, afterRevoke)
 			}

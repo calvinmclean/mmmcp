@@ -4,6 +4,12 @@ import (
 	"time"
 )
 
+const (
+	ToolSearchOff    ToolSearchMode = "off"
+	ToolSearchSearch ToolSearchMode = "search"
+	ToolSearchHybrid ToolSearchMode = "hybrid"
+)
+
 // Config is a complete composite server configuration.
 type Config struct {
 	Name    string
@@ -16,21 +22,6 @@ type Config struct {
 }
 
 type ToolSearchMode string
-
-const (
-	ToolSearchOff    ToolSearchMode = "off"
-	ToolSearchSearch ToolSearchMode = "search"
-	ToolSearchHybrid ToolSearchMode = "hybrid"
-)
-
-func (m ToolSearchMode) Valid() bool {
-	switch m {
-	case "", ToolSearchOff, ToolSearchSearch, ToolSearchHybrid:
-		return true
-	default:
-		return false
-	}
-}
 
 // Server describes one component MCP server.
 type Server struct {
@@ -162,6 +153,15 @@ type resourceTemplateOverrideDTO struct {
 
 type durationValue struct {
 	time.Duration
+}
+
+func (m ToolSearchMode) Valid() bool {
+	switch m {
+	case "", ToolSearchOff, ToolSearchSearch, ToolSearchHybrid:
+		return true
+	default:
+		return false
+	}
 }
 
 func enabledOrDefault(enabled *bool) bool {

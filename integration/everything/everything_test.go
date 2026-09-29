@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/obot-platform/mmmcp/catalog"
+	"github.com/obot-platform/mmmcp/toolsearch"
 )
 
 const everythingPackage = "@modelcontextprotocol/server-everything@2026.8.18"
@@ -147,12 +147,12 @@ func verifyEverythingServer(t *testing.T, session *mcp.ClientSession, mode strin
 	}
 	switch mode {
 	case "search":
-		if !maps.Equal(mapFromNames(toolNames), map[string]int{catalog.SearchToolName: 1, catalog.CallToolName: 1}) {
+		if !maps.Equal(mapFromNames(toolNames), map[string]int{toolsearch.SearchToolName: 1, toolsearch.CallToolName: 1}) {
 			t.Fatalf("search mode tools = %v, want only search and generic call", toolNames)
 		}
 	default:
 		if mode == "hybrid" {
-			if !removeName(&toolNames, catalog.SearchToolName) || !removeName(&toolNames, catalog.CallToolName) {
+			if !removeName(&toolNames, toolsearch.SearchToolName) || !removeName(&toolNames, toolsearch.CallToolName) {
 				t.Fatalf("hybrid mode omitted synthetic tools: %v", toolNames)
 			}
 		}
@@ -234,8 +234,8 @@ func verifyToolSearch(t *testing.T, session *mcp.ClientSession) {
 		{component: "everything-stdio", name: "get-sum", args: map[string]any{"a": 2, "b": 3}, want: "The sum of 2 and 3 is 5."},
 	} {
 		t.Run(test.component+" search "+test.name, func(t *testing.T) {
-			found := callTool(t, session, catalog.SearchToolName, map[string]any{"query": test.name, "limit": 20})
-			var results catalog.SearchResults
+			found := callTool(t, session, toolsearch.SearchToolName, map[string]any{"query": test.name, "limit": 20})
+			var results toolsearch.Results
 			if len(found.Content) == 0 {
 				t.Fatalf("search returned no content: %+v", found)
 			}
@@ -246,10 +246,10 @@ func verifyToolSearch(t *testing.T, session *mcp.ClientSession) {
 			if err := json.Unmarshal([]byte(content.Text), &results); err != nil {
 				t.Fatalf("decode search result: %v; result = %s", err, resultText(found))
 			}
-			var hit *catalog.SearchHit
+			var hit *toolsearch.Hit
 			for i := range results.Tools {
 				candidate := &results.Tools[i]
-				if candidate.Reference == (catalog.ToolReference{ComponentID: test.component, Name: test.name}) {
+				if candidate.Reference == (toolsearch.Reference{ComponentID: test.component, Name: test.name}) {
 					hit = candidate
 					break
 				}
@@ -257,7 +257,7 @@ func verifyToolSearch(t *testing.T, session *mcp.ClientSession) {
 			if hit == nil || hit.Tool == nil || hit.Tool.InputSchema == nil || hit.Revision == "" {
 				t.Fatalf("search omitted complete %s/%s definition: %+v", test.component, test.name, results)
 			}
-			called := callTool(t, session, catalog.CallToolName, map[string]any{
+			called := callTool(t, session, toolsearch.CallToolName, map[string]any{
 				"tool": hit.Reference, "revision": hit.Revision, "arguments": test.args,
 			})
 			requireTextResult(t, called, test.want)
