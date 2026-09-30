@@ -23,4 +23,6 @@ func (m Mode) Valid() bool {
 }
 
 // Enabled reports whether tool search is available in this mode.
-func (m Mode) Enabled() bool { return m == ModeSearch || m == ModeHybrid }
+func (m Mode) Enabled() bool {
+	return m == ModeSearch || m == ModeHybrid
+}

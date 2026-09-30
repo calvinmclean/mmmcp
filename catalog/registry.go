@@ -49,7 +49,12 @@ type registryEntry struct {
 // NewRegistry creates a catalog registry.
 func NewRegistry(discoverer component.Discoverer) *Registry {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Registry{discoverer: discoverer, ctx: ctx, cancel: cancel, entries: make(map[string]*registryEntry)}
+	return &Registry{
+		discoverer: discoverer,
+		ctx:        ctx,
+		cancel:     cancel,
+		entries:    make(map[string]*registryEntry),
+	}
 }
 
 // Fingerprint returns a stable, non-reversible digest of a complete configuration.
@@ -131,7 +136,12 @@ func (r *Registry) Refresh(ctx context.Context, cfg *config.Config) (*Catalog, s
 		}
 		return nil, fingerprint, err
 	}
-	entry := &registryEntry{ready: make(chan struct{}), catalog: compiled, config: cfg, refreshed: time.Now()}
+	entry := &registryEntry{
+		ready:     make(chan struct{}),
+		catalog:   compiled,
+		config:    cfg,
+		refreshed: time.Now(),
+	}
 	close(entry.ready)
 	compiled.StartSearchIndex(r.ctx)
 	r.mu.Lock()

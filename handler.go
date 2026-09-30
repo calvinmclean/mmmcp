@@ -59,7 +59,11 @@ func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
 					return nil, err
 				}
 				// Available tools depend on the request's selected configuration.
-				return &mcp.ListToolsResult{CacheScope: "private", Tools: values, NextCursor: nextCursor}, nil
+				return &mcp.ListToolsResult{
+					CacheScope: "private",
+					Tools:      values,
+					NextCursor: nextCursor,
+				}, nil
 			case "prompts/list":
 				req, ok := request.(*mcp.ListPromptsRequest)
 				if !ok {

@@ -60,7 +60,10 @@ func (c *Catalog) ResolveToolCall(ctx context.Context, name string, arguments js
 	switch c.toolCalls[name] {
 	case toolCallDirect:
 		route := c.toolRoutes[name]
-		return ResolvedToolCall{Route: &route, Arguments: arguments}, true, nil
+		return ResolvedToolCall{
+			Route:     &route,
+			Arguments: arguments,
+		}, true, nil
 	case toolCallSearch:
 		result, err := c.SearchTool(ctx, arguments)
 		return ResolvedToolCall{Result: result}, true, err
@@ -69,6 +72,7 @@ func (c *Catalog) ResolveToolCall(ctx context.Context, name string, arguments js
 		if err != nil {
 			return failedToolCall(invalidArgumentsCode, "tool, revision, and arguments are required"), true, nil
 		}
+
 		route, _, revision, ok := c.RouteReference(args.Tool)
 		if !ok {
 			return failedToolCall(toolUnavailableCode, "tool is unavailable"), true, nil
@@ -76,15 +80,23 @@ func (c *Catalog) ResolveToolCall(ctx context.Context, name string, arguments js
 		if revision != args.Revision {
 			return failedToolCall(staleReferenceCode, "tool changed; search again"), true, nil
 		}
-		return ResolvedToolCall{Route: &route, Arguments: args.Arguments}, true, nil
+
+		return ResolvedToolCall{
+			Route:     &route,
+			Arguments: args.Arguments,
+		}, true, nil
 	default:
 		return ResolvedToolCall{}, false, nil
 	}
 }
 
 func failedToolCall(code, message string) ResolvedToolCall {
-	return ResolvedToolCall{Result: &mcp.CallToolResult{
-		IsError: true,
-		Content: []mcp.Content{&mcp.TextContent{Text: code + ": " + message}},
-	}}
+	return ResolvedToolCall{
+		Result: &mcp.CallToolResult{
+			IsError: true,
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: code + ": " + message},
+			},
+		},
+	}
 }

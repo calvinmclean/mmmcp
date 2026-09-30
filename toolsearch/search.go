@@ -414,10 +414,22 @@ func (i *Index) Search(ctx context.Context, text string, limit int) (Results, er
 		name  string
 		boost float64
 	}{
-		{name: "name", boost: 4},
-		{name: "component", boost: 2},
-		{name: "description", boost: 2},
-		{name: "parameters", boost: 1},
+		{
+			name:  "name",
+			boost: 4,
+		},
+		{
+			name:  "component",
+			boost: 2,
+		},
+		{
+			name:  "description",
+			boost: 2,
+		},
+		{
+			name:  "parameters",
+			boost: 1,
+		},
 	}
 
 	for _, field := range fields {
@@ -514,14 +526,18 @@ func (i *Index) Call(ctx context.Context, arguments any) (*mcp.CallToolResult, e
 
 	return &mcp.CallToolResult{
 		StructuredContent: results,
-		Content:           []mcp.Content{&mcp.TextContent{Text: string(output)}},
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: string(output)},
+		},
 	}, nil
 }
 
 func toolError(message string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{
 		IsError: true,
-		Content: []mcp.Content{&mcp.TextContent{Text: message}},
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: message},
+		},
 	}
 }
 

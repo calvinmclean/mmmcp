@@ -44,7 +44,10 @@ func (r ToolRoute) Reference() toolsearch.Reference {
 	if id == "" {
 		id = r.Component.Name
 	}
-	return toolsearch.Reference{ComponentID: id, Name: r.Tool.Name}
+	return toolsearch.Reference{
+		ComponentID: id,
+		Name:        r.Tool.Name,
+	}
 }
 
 func (r ResourceTemplateRoute) toOriginal(uri string) (string, bool) {

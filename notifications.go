@@ -51,7 +51,12 @@ func (s *configToolSubscriptions) observe(id, method string, server *mcp.Server,
 	var cleanup func()
 	if method == subscriptionsListenMethod {
 		if entry == nil {
-			entry = &configToolSubscription{catalog: compiled, fingerprint: fingerprint, mode: mode, servers: make(map[*mcp.Server]struct{})}
+			entry = &configToolSubscription{
+				catalog:     compiled,
+				fingerprint: fingerprint,
+				mode:        mode,
+				servers:     make(map[*mcp.Server]struct{}),
+			}
 			if s.configs == nil {
 				s.configs = make(map[string]*configToolSubscription)
 			}

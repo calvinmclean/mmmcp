@@ -76,14 +76,24 @@ func TestSearchCatalogFailsClosedDuringAndAfterFailedRefresh(t *testing.T) {
 	discoverer := &mutableDiscoverer{name: "first"}
 	registry := catalog.NewRegistry(discoverer)
 	defer registry.Close()
-	cfg := &config.Config{ToolSearchMode: toolsearch.ModeSearch, Servers: []config.Server{{Name: "fixture", URL: "https://example.invalid"}}}
+
+	cfg := &config.Config{
+		ToolSearchMode: toolsearch.ModeSearch,
+		Servers: []config.Server{{
+			Name: "fixture",
+			URL:  "https://example.invalid",
+		}},
+	}
 	_, fingerprint, err := registry.Get(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	discoverer.set("broken", errors.New("discovery failed"))
 	done := make(chan bool, 1)
-	registry.RequestRefresh(fingerprint, func(success bool) { done <- success })
+	registry.RequestRefresh(fingerprint, func(success bool) {
+		done <- success
+	})
 	if _, _, err := registry.Get(t.Context(), cfg); !errors.Is(err, catalog.ErrCatalogUnavailable) {
 		t.Fatalf("pending refresh returned %v", err)
 	}
@@ -93,12 +103,16 @@ func TestSearchCatalogFailsClosedDuringAndAfterFailedRefresh(t *testing.T) {
 	if _, _, err := registry.Get(t.Context(), cfg); !errors.Is(err, catalog.ErrCatalogUnavailable) {
 		t.Fatalf("failed refresh exposed stale catalog: %v", err)
 	}
+
 	discoverer.set("second", nil)
 	done = make(chan bool, 1)
-	registry.RequestRefresh(fingerprint, func(success bool) { done <- success })
+	registry.RequestRefresh(fingerprint, func(success bool) {
+		done <- success
+	})
 	if !<-done {
 		t.Fatal("recovery refresh failed")
 	}
+
 	current, _, err := registry.Get(t.Context(), cfg)
 	if err != nil || current.Tools()[0].Name != "second" {
 		t.Fatalf("recovered catalog = %+v, err = %v", current, err)

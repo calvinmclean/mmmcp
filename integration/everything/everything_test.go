@@ -90,7 +90,10 @@ servers:
 				defer frontend.stop(t)
 				waitForHTTP(t, "http://"+frontendAddress+"/healthz", frontend)
 
-				client := mcp.NewClient(&mcp.Implementation{Name: "everything-http-integration-test", Version: "1.0.0"}, nil)
+				client := mcp.NewClient(&mcp.Implementation{
+					Name:    "everything-http-integration-test",
+					Version: "1.0.0",
+				}, nil)
 				ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 				defer cancel()
 				session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
@@ -113,7 +116,10 @@ servers:
 					"-dsn", filepath.Join(testDir, "mmmcp-"+mode+"-stdio.db"),
 				)
 				command.Stderr = &stderr
-				client := mcp.NewClient(&mcp.Implementation{Name: "everything-stdio-integration-test", Version: "1.0.0"}, nil)
+				client := mcp.NewClient(&mcp.Implementation{
+					Name:    "everything-stdio-integration-test",
+					Version: "1.0.0",
+				}, nil)
 				ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 				defer cancel()
 				session, err := client.Connect(ctx, &mcp.CommandTransport{Command: command, TerminateDuration: 10 * time.Second}, nil)
@@ -147,7 +153,11 @@ func verifyEverythingServer(t *testing.T, session *mcp.ClientSession, mode strin
 	}
 	switch mode {
 	case "search":
-		if !maps.Equal(mapFromNames(toolNames), map[string]int{toolsearch.SearchToolName: 1, toolsearch.CallToolName: 1}) {
+		want := map[string]int{
+			toolsearch.SearchToolName: 1,
+			toolsearch.CallToolName:   1,
+		}
+		if !maps.Equal(mapFromNames(toolNames), want) {
 			t.Fatalf("search mode tools = %v, want only search and generic call", toolNames)
 		}
 	default:
@@ -216,7 +226,10 @@ func removeName(names *[]string, target string) bool {
 
 func verifyDirectToolUnavailable(t *testing.T, session *mcp.ClientSession, name string) {
 	t.Helper()
-	result, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: name, Arguments: map[string]any{}})
+	result, err := session.CallTool(t.Context(), &mcp.CallToolParams{
+		Name:      name,
+		Arguments: map[string]any{},
+	})
 	if err == nil && (result == nil || !result.IsError) {
 		t.Fatalf("direct call to %q succeeded in search mode: %+v", name, result)
 	}
@@ -230,11 +243,27 @@ func verifyToolSearch(t *testing.T, session *mcp.ClientSession) {
 		args      map[string]any
 		want      string
 	}{
-		{component: "everything-http", name: "echo", args: map[string]any{"message": "searched HTTP"}, want: "Echo: searched HTTP"},
-		{component: "everything-stdio", name: "get-sum", args: map[string]any{"a": 2, "b": 3}, want: "The sum of 2 and 3 is 5."},
+		{
+			component: "everything-http",
+			name:      "echo",
+			args:      map[string]any{"message": "searched HTTP"},
+			want:      "Echo: searched HTTP",
+		},
+		{
+			component: "everything-stdio",
+			name:      "get-sum",
+			args: map[string]any{
+				"a": 2,
+				"b": 3,
+			},
+			want: "The sum of 2 and 3 is 5.",
+		},
 	} {
 		t.Run(test.component+" search "+test.name, func(t *testing.T) {
-			found := callTool(t, session, toolsearch.SearchToolName, map[string]any{"query": test.name, "limit": 20})
+			found := callTool(t, session, toolsearch.SearchToolName, map[string]any{
+				"query": test.name,
+				"limit": 20,
+			})
 			var results toolsearch.Results
 			if len(found.Content) == 0 {
 				t.Fatalf("search returned no content: %+v", found)
@@ -246,10 +275,14 @@ func verifyToolSearch(t *testing.T, session *mcp.ClientSession) {
 			if err := json.Unmarshal([]byte(content.Text), &results); err != nil {
 				t.Fatalf("decode search result: %v; result = %s", err, resultText(found))
 			}
+
 			var hit *toolsearch.Hit
 			for i := range results.Tools {
 				candidate := &results.Tools[i]
-				if candidate.Reference == (toolsearch.Reference{ComponentID: test.component, Name: test.name}) {
+				if candidate.Reference == (toolsearch.Reference{
+					ComponentID: test.component,
+					Name:        test.name,
+				}) {
 					hit = candidate
 					break
 				}
@@ -258,7 +291,9 @@ func verifyToolSearch(t *testing.T, session *mcp.ClientSession) {
 				t.Fatalf("search omitted complete %s/%s definition: %+v", test.component, test.name, results)
 			}
 			called := callTool(t, session, toolsearch.CallToolName, map[string]any{
-				"tool": hit.Reference, "revision": hit.Revision, "arguments": test.args,
+				"tool":      hit.Reference,
+				"revision":  hit.Revision,
+				"arguments": test.args,
 			})
 			requireTextResult(t, called, test.want)
 		})
