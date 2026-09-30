@@ -79,6 +79,15 @@ func (c *Catalog) PageTools(cursor string, pageSize int) ([]*mcp.Tool, string, e
 	return append([]*mcp.Tool{}, c.tools[start:end]...), next, nil
 }
 
+// PageVisibleTools returns the tools callable in this catalog's configured mode.
+func (c *Catalog) PageVisibleTools(cursor string, pageSize int) ([]*mcp.Tool, string, error) {
+	start, end, next, err := c.page(FamilyTools, toolNames(c.visibleTools), cursor, pageSize)
+	if err != nil {
+		return nil, "", err
+	}
+	return append([]*mcp.Tool{}, c.visibleTools[start:end]...), next, nil
+}
+
 // PagePrompts returns one stable page of prompts.
 func (c *Catalog) PagePrompts(cursor string, pageSize int) ([]*mcp.Prompt, string, error) {
 	start, end, next, err := c.page(FamilyPrompts, promptNames(c.prompts), cursor, pageSize)

@@ -65,7 +65,7 @@ func compile(ctx context.Context, cfg *config.Config, discoverer component.Disco
 			return nil, err
 		}
 	}
-	compiled, err := newCatalog(result)
+	compiled, err := newCatalog(result, cfg.ToolSearchMode)
 	if err != nil || !cfg.ToolSearchMode.Enabled() {
 		return compiled, err
 	}

@@ -30,11 +30,6 @@ const (
 	searchWait   = 30 * time.Second
 )
 
-// IsToolCall reports whether name belongs to a tool implemented by toolsearch.
-func IsToolCall(name string) bool {
-	return name == SearchToolName || name == CallToolName
-}
-
 var (
 	// ErrNotReady indicates that the index did not become ready before the wait ended.
 	ErrNotReady = errors.New("tool search index is not ready")
@@ -51,12 +46,11 @@ type Reference struct {
 
 // Document contains the effective tool definition and identity to index.
 type Document struct {
-	ExposedName  string
-	OriginalName string
-	Component    string
-	Reference    Reference
-	Revision     string
-	Tool         *mcp.Tool
+	ExposedName string
+	Component   string
+	Reference   Reference
+	Revision    string
+	Tool        *mcp.Tool
 }
 
 // Hit is a matching tool with the information needed to invoke it.
@@ -383,7 +377,7 @@ func buildIndex(ctx context.Context, documents map[string]Document) (bleve.Index
 			return nil, err
 		}
 		if err := batch.Index(doc.ExposedName, map[string]string{
-			"name":        searchText(doc.ExposedName + " " + doc.OriginalName + " " + doc.Tool.Title),
+			"name":        searchText(doc.ExposedName),
 			"component":   searchText(doc.Component),
 			"description": doc.Tool.Description,
 			"parameters":  schemaTerms(doc.Tool.InputSchema),

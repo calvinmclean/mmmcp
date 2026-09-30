@@ -12,7 +12,6 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/obot-platform/mmmcp"
-	"github.com/obot-platform/mmmcp/catalog"
 	"github.com/obot-platform/mmmcp/config"
 	"github.com/obot-platform/mmmcp/testserver"
 	"github.com/obot-platform/mmmcp/toolsearch"
@@ -110,11 +109,11 @@ func TestSyntheticToolResultsUseFrontendProtocol(t *testing.T) {
 	call := func(name string, args map[string]any) map[string]json.RawMessage {
 		return rawOperationCall(t, frontend, "tools/call", map[string]any{"name": name, "arguments": args}, meta, "2026-07-28", "")
 	}
-	search := call(catalog.SearchToolName, map[string]any{"query": "echo"})
+	search := call(toolsearch.SearchToolName, map[string]any{"query": "echo"})
 	if got := rawString(t, search["resultType"]); got != "complete" {
 		t.Fatalf("search resultType = %q, want complete", got)
 	}
-	var found catalog.SearchResults
+	var found toolsearch.Results
 	if err := json.Unmarshal(search["structuredContent"], &found); err != nil || len(found.Tools) != 1 {
 		t.Fatalf("search results = %+v, err = %v", found, err)
 	}
@@ -122,12 +121,12 @@ func TestSyntheticToolResultsUseFrontendProtocol(t *testing.T) {
 		{"tool": found.Tools[0].Reference, "revision": found.Tools[0].Revision, "arguments": map[string]any{}},
 		{"tool": found.Tools[0].Reference, "revision": "stale", "arguments": map[string]any{}},
 	} {
-		result := call(catalog.CallToolName, invocation)
+		result := call(toolsearch.CallToolName, invocation)
 		if got := rawString(t, result["resultType"]); got != "complete" {
 			t.Fatalf("generic resultType = %q, want complete", got)
 		}
 	}
-	invalid := call(catalog.SearchToolName, map[string]any{"query": ""})
+	invalid := call(toolsearch.SearchToolName, map[string]any{"query": ""})
 	if got := rawString(t, invalid["resultType"]); got != "complete" {
 		t.Fatalf("invalid search resultType = %q, want complete", got)
 	}

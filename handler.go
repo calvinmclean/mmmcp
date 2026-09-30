@@ -2,7 +2,6 @@ package mmmcp
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"sync"
@@ -55,7 +54,7 @@ func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
 				if req.Params == nil {
 					req.Params = &mcp.ListToolsParams{}
 				}
-				values, nextCursor, err := compiled.PageToolsMode(mode, req.Params.Cursor, c.pageSize)
+				values, nextCursor, err := compiled.PageVisibleTools(req.Params.Cursor, c.pageSize)
 				if err != nil {
 					return nil, err
 				}
@@ -101,7 +100,7 @@ func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
 				}
 				return &mcp.ListResourceTemplatesResult{CacheScope: "public", ResourceTemplates: values, NextCursor: nextCursor}, nil
 			case "tools/call":
-				return c.callTool(ctx, request, compiled, fingerprint, mode)
+				return c.callTool(ctx, request, compiled, fingerprint)
 			case "prompts/get":
 				return c.getPrompt(ctx, request, compiled, fingerprint)
 			case "resources/read":
@@ -134,30 +133,27 @@ func (c *Composite) configForRequest(ctx context.Context, request mcp.Request) *
 	return effectiveConfig(ctx, c.defaultConfig)
 }
 
-func (c *Composite) callTool(ctx context.Context, request mcp.Request, compiled *catalog.Catalog, fingerprint string, mode toolsearch.Mode) (mcp.Result, error) {
+func (c *Composite) callTool(ctx context.Context, request mcp.Request, compiled *catalog.Catalog, fingerprint string) (mcp.Result, error) {
 	req, ok := request.(*mcp.CallToolRequest)
 	if !ok || req.Params == nil {
 		return nil, invalidRequest("tools/call")
 	}
-	if mode.Enabled() {
-		if mode == toolsearch.ModeSearch || toolsearch.IsToolCall(req.Params.Name) {
-			return c.toolSearchHandler(ctx, request, compiled, fingerprint)
-		}
+	call, ok, err := compiled.ResolveToolCall(ctx, req.Params.Name, req.Params.Arguments)
+	if err != nil {
+		return nil, err
 	}
-	route, ok := compiled.RouteTool(req.Params.Name)
 	if !ok {
 		return nil, unknown("tool", req.Params.Name)
 	}
-	return c.executeTool(ctx, request, compiled, fingerprint, route, req.Params.Arguments)
-}
-
-func (c *Composite) executeTool(ctx context.Context, request mcp.Request, compiled *catalog.Catalog, fingerprint string, route catalog.ToolRoute, arguments json.RawMessage) (mcp.Result, error) {
-	req := request.(*mcp.CallToolRequest)
-	ctx = component.ContextWithToolCall(ctx, route.Tool, arguments)
+	if call.Result != nil {
+		return normalizeCallToolResult(request, call.Result)
+	}
+	route := *call.Route
+	ctx = component.ContextWithToolCall(ctx, route.Tool, call.Arguments)
 	params := &mcp.CallToolParams{
 		Meta:           component.DownstreamMeta(req.Params.Meta),
 		Name:           route.Tool.Name,
-		Arguments:      arguments,
+		Arguments:      call.Arguments,
 		InputResponses: req.Params.InputResponses,
 		RequestState:   req.Params.RequestState,
 	}
@@ -172,48 +168,6 @@ func (c *Composite) executeTool(ctx context.Context, request mcp.Request, compil
 		return nil, err
 	}
 	return normalizeCallToolResult(request, compiled.RewriteCallToolResult(route.Prefix, result))
-}
-
-func (c *Composite) toolSearchHandler(ctx context.Context, request mcp.Request, compiled *catalog.Catalog, fingerprint string) (mcp.Result, error) {
-	req := request.(*mcp.CallToolRequest)
-	switch req.Params.Name {
-	case toolsearch.SearchToolName:
-		result, err := compiled.SearchTool(ctx, req.Params.Arguments)
-		if err != nil {
-			return nil, err
-		}
-		return normalizeCallToolResult(request, result)
-	case toolsearch.CallToolName:
-		return c.callReferencedTool(ctx, request, compiled, fingerprint)
-	default:
-		// Search mode does not publish direct component tools, even though the
-		// catalog retains their routes for reference based invocation.
-		return nil, unknown("tool", req.Params.Name)
-	}
-}
-
-// callReferencedTool resolves a synthetic call tool's reference and revision;
-// synthetic tools have no component route of their own.
-func (c *Composite) callReferencedTool(ctx context.Context, request mcp.Request, compiled *catalog.Catalog, fingerprint string) (mcp.Result, error) {
-	const (
-		// These codes identify invalid, unavailable, and stale generic tool calls.
-		invalidArguments   = "INVALID_ARGUMENTS"
-		toolUnavailable    = "TOOL_UNAVAILABLE"
-		staleToolReference = "STALE_TOOL_REFERENCE"
-	)
-	req := request.(*mcp.CallToolRequest)
-	args, err := toolsearch.ParseCallArguments(req.Params.Arguments)
-	if err != nil {
-		return toolFailure(request, invalidArguments, "tool, revision, and arguments are required")
-	}
-	route, _, revision, ok := compiled.RouteReference(args.Tool)
-	if !ok {
-		return toolFailure(request, toolUnavailable, "tool is unavailable")
-	}
-	if revision != args.Revision {
-		return toolFailure(request, staleToolReference, "tool changed; search again")
-	}
-	return c.executeTool(ctx, request, compiled, fingerprint, route, args.Arguments)
 }
 
 func (c *Composite) getPrompt(ctx context.Context, request mcp.Request, compiled *catalog.Catalog, fingerprint string) (mcp.Result, error) {
@@ -357,8 +311,4 @@ func invalidRequest(method string) error {
 
 func unknown(family, identity string) error {
 	return &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: fmt.Sprintf("unknown %s %q", family, identity)}
-}
-
-func toolFailure(request mcp.Request, code, message string) (*mcp.CallToolResult, error) {
-	return normalizeCallToolResult(request, &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: code + ": " + message}}})
 }

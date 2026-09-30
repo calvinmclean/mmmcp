@@ -87,6 +87,7 @@ Two tools are enabled when search mode is enabled:
 - `mmmcp_search_tools`: queries the available tools. Results contain the effective
   tool definition, including its input schema. Results are ranked locally using
   Bleve BM25 on tool names, descriptions, component names, and input parameters.
+  A renamed tool is indexed by its configured name, not its original name.
 - `mmmcp_call_tool` accepts the returned `tool`, `revision`, and `arguments`. It
   rechecks the current catalog on every call, returning `TOOL_UNAVAILABLE` for an
   excluded or removed tool and `STALE_TOOL_REFERENCE` when the tool changed

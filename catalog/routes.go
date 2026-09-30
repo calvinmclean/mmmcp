@@ -14,9 +14,6 @@ type ToolRoute struct {
 	Tool      *mcp.Tool
 }
 
-// ToolReference survives display-name and prefix changes.
-type ToolReference = toolsearch.Reference
-
 // PromptRoute maps an exposed prompt identity back to its component identity.
 type PromptRoute struct {
 	Component    config.Server
@@ -42,12 +39,12 @@ type ResourceTemplateRoute struct {
 	original          *uritemplate.Template
 }
 
-func (r ToolRoute) Reference() ToolReference {
+func (r ToolRoute) Reference() toolsearch.Reference {
 	id := r.Component.ID
 	if id == "" {
 		id = r.Component.Name
 	}
-	return ToolReference{ComponentID: id, Name: r.Tool.Name}
+	return toolsearch.Reference{ComponentID: id, Name: r.Tool.Name}
 }
 
 func (r ResourceTemplateRoute) toOriginal(uri string) (string, bool) {

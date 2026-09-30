@@ -15,12 +15,11 @@ import (
 
 func testIndex() *Index {
 	return New([]Document{{
-		ExposedName:  "billing__lookup",
-		OriginalName: "lookup",
-		Component:    "billing",
-		Reference:    Reference{ComponentID: "billing-id", Name: "lookup"},
-		Revision:     "revision",
-		Tool:         &mcp.Tool{Name: "billing__lookup", Description: "Find invoices", InputSchema: map[string]any{"type": "object"}},
+		ExposedName: "billing__lookup",
+		Component:   "billing",
+		Reference:   Reference{ComponentID: "billing-id", Name: "lookup"},
+		Revision:    "revision",
+		Tool:        &mcp.Tool{Name: "billing__lookup", Description: "Find invoices", InputSchema: map[string]any{"type": "object"}},
 	}})
 }
 

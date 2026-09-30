@@ -17,6 +17,8 @@ type Catalog struct {
 	id                string
 	serverInfo        *mcp.Implementation
 	tools             []*mcp.Tool
+	visibleTools      []*mcp.Tool
+	toolCalls         map[string]toolCallKind
 	prompts           []*mcp.Prompt
 	resources         []*mcp.Resource
 	resourceTemplates []*mcp.ResourceTemplate
@@ -50,8 +52,11 @@ func (c *Catalog) ResourceTemplates() []*mcp.ResourceTemplate {
 	return append([]*mcp.ResourceTemplate(nil), c.resourceTemplates...)
 }
 
-// RouteTool resolves an exposed tool name.
+// RouteTool resolves a callable downstream tool name.
 func (c *Catalog) RouteTool(name string) (ToolRoute, bool) {
+	if c.toolCalls[name] != toolCallDirect {
+		return ToolRoute{}, false
+	}
 	route, ok := c.toolRoutes[name]
 	return route, ok
 }
@@ -75,19 +80,22 @@ func (c *Catalog) RouteResource(uri string) (ResourceRoute, bool) {
 	return ResourceRoute{}, false
 }
 
-func newCatalog(c *Catalog) (*Catalog, error) {
+func newCatalog(c *Catalog, mode toolsearch.Mode) (*Catalog, error) {
 	sort.Slice(c.tools, func(i, j int) bool { return c.tools[i].Name < c.tools[j].Name })
+	c.configureToolCalls(mode)
 	sort.Slice(c.prompts, func(i, j int) bool { return c.prompts[i].Name < c.prompts[j].Name })
 	sort.Slice(c.resources, func(i, j int) bool { return c.resources[i].URI < c.resources[j].URI })
 	sort.Slice(c.resourceTemplates, func(i, j int) bool {
 		return c.resourceTemplates[i].URITemplate < c.resourceTemplates[j].URITemplate
 	})
 	snapshot, err := json.Marshal(struct {
+		ToolSearchMode    toolsearch.Mode         `json:"toolSearchMode"`
 		Tools             []*mcp.Tool             `json:"tools"`
+		VisibleTools      []*mcp.Tool             `json:"visibleTools"`
 		Prompts           []*mcp.Prompt           `json:"prompts"`
 		Resources         []*mcp.Resource         `json:"resources"`
 		ResourceTemplates []*mcp.ResourceTemplate `json:"resourceTemplates"`
-	}{c.tools, c.prompts, c.resources, c.resourceTemplates})
+	}{mode, c.tools, c.visibleTools, c.prompts, c.resources, c.resourceTemplates})
 	if err != nil {
 		return nil, fmt.Errorf("catalog snapshot: %w", err)
 	}
