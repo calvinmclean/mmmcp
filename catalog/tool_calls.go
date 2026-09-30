@@ -32,15 +32,9 @@ type ResolvedToolCall struct {
 	Result    *mcp.CallToolResult
 }
 
-func (c *Catalog) configureToolCalls(mode toolsearch.Mode) {
+func (c *Catalog) configureToolCalls(toolSearch bool) {
 	c.toolCalls = make(map[string]toolCallKind, len(c.tools)+2)
-	if mode != toolsearch.ModeSearch {
-		c.visibleTools = append(c.visibleTools, c.tools...)
-		for _, tool := range c.tools {
-			c.toolCalls[tool.Name] = toolCallDirect
-		}
-	}
-	if mode.Enabled() {
+	if toolSearch {
 		for _, tool := range toolsearch.Definitions() {
 			c.visibleTools = append(c.visibleTools, tool)
 			switch tool.Name {
@@ -49,6 +43,11 @@ func (c *Catalog) configureToolCalls(mode toolsearch.Mode) {
 			case toolsearch.CallToolName:
 				c.toolCalls[tool.Name] = toolCallReference
 			}
+		}
+	} else {
+		c.visibleTools = append(c.visibleTools, c.tools...)
+		for _, tool := range c.tools {
+			c.toolCalls[tool.Name] = toolCallDirect
 		}
 	}
 	sort.Slice(c.visibleTools, func(i, j int) bool { return c.visibleTools[i].Name < c.visibleTools[j].Name })

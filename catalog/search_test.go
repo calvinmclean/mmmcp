@@ -51,7 +51,7 @@ func (searchDiscoverer) Discover(_ context.Context, server config.Server) (*comp
 
 func TestSearchUsesOnlyCompiledToolsAndStableReferences(t *testing.T) {
 	cfg := &config.Config{
-		ToolSearchMode: toolsearch.ModeSearch,
+		ToolSearch: true,
 		Servers: []config.Server{
 			{
 				ID:   "one",
@@ -108,7 +108,7 @@ func TestSearchUsesOnlyCompiledToolsAndStableReferences(t *testing.T) {
 
 func TestSearchReservedToolCollision(t *testing.T) {
 	cfg := &config.Config{
-		ToolSearchMode: toolsearch.ModeSearch,
+		ToolSearch: true,
 		Servers: []config.Server{{
 			Name: "fixture",
 			URL:  "https://example.invalid",
@@ -119,7 +119,7 @@ func TestSearchReservedToolCollision(t *testing.T) {
 		t.Fatal("reserved name should reject search catalog")
 	}
 
-	cfg.ToolSearchMode = toolsearch.ModeOff
+	cfg.ToolSearch = false
 	compiled, err := catalog.Compile(t.Context(), cfg, collisionDiscoverer{})
 	if err != nil {
 		t.Fatalf("off mode should allow existing component name: %v", err)
@@ -158,7 +158,7 @@ func TestSearchUsesEffectiveOverrides(t *testing.T) {
 		},
 	}}
 	cfg := &config.Config{
-		ToolSearchMode: toolsearch.ModeSearch,
+		ToolSearch: true,
 		Servers: []config.Server{{
 			Name:   "billing",
 			Prefix: "billing",
@@ -236,9 +236,9 @@ func TestSearchUsesEffectiveOverrides(t *testing.T) {
 	}
 }
 
-func TestVisibleToolCursorIsModeSpecific(t *testing.T) {
+func TestVisibleToolCursorChangesWithToolSearch(t *testing.T) {
 	cfg := &config.Config{
-		ToolSearchMode: toolsearch.ModeOff,
+		ToolSearch: false,
 		Servers: []config.Server{{
 			Name: "billing",
 			URL:  "https://example.invalid",
@@ -253,17 +253,14 @@ func TestVisibleToolCursorIsModeSpecific(t *testing.T) {
 		t.Fatalf("expected off-mode cursor: %q, %v", cursor, err)
 	}
 
-	cfg.ToolSearchMode = toolsearch.ModeHybrid
-	hybrid, err := catalog.Compile(t.Context(), cfg, searchDiscoverer{})
+	cfg.ToolSearch = true
+	search, err := catalog.Compile(t.Context(), cfg, searchDiscoverer{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if _, _, err := hybrid.PageVisibleTools(cursor, 1); err == nil {
-		t.Fatal("cursor from off mode was accepted in hybrid mode")
-	}
-	if call, ok, err := hybrid.ResolveToolCall(t.Context(), "lookup", nil); err != nil || !ok || call.Route == nil {
-		t.Fatalf("hybrid mode did not route direct tool: %+v, %v, %v", call, ok, err)
+	if _, _, err := search.PageVisibleTools(cursor, 1); err == nil {
+		t.Fatal("cursor from direct mode was accepted in search mode")
 	}
 }
 

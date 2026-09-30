@@ -23,11 +23,8 @@ type discoveryResult struct {
 }
 
 func compile(ctx context.Context, cfg *config.Config, discoverer component.Discoverer) (*Catalog, error) {
-	if !cfg.ToolSearchMode.Valid() {
-		return nil, fmt.Errorf("invalid tool search mode %q", cfg.ToolSearchMode)
-	}
 	result := newCompileCatalog()
-	result.reserveSynthetic = cfg.ToolSearchMode.Enabled()
+	result.reserveSynthetic = cfg.ToolSearch
 	componentIDs := make(map[string]bool, len(cfg.Servers))
 	prefixes := make([]string, len(cfg.Servers))
 	for i, server := range cfg.Servers {
@@ -65,8 +62,8 @@ func compile(ctx context.Context, cfg *config.Config, discoverer component.Disco
 			return nil, err
 		}
 	}
-	compiled, err := newCatalog(result, cfg.ToolSearchMode)
-	if err != nil || !cfg.ToolSearchMode.Enabled() {
+	compiled, err := newCatalog(result, cfg.ToolSearch)
+	if err != nil || !cfg.ToolSearch {
 		return compiled, err
 	}
 	compiled.searchIndex = toolsearch.New(compiled.searchDocuments())

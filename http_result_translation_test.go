@@ -108,7 +108,7 @@ func TestSyntheticToolResultsUseFrontendProtocol(t *testing.T) {
 		}},
 	})
 	composite, err := mmmcp.New(t.Context(), &config.Config{
-		ToolSearchMode: toolsearch.ModeSearch,
+		ToolSearch: true,
 		Servers: []config.Server{{
 			Name: "fixture",
 			URL:  fixture.URL,

@@ -11,7 +11,6 @@ import (
 	"github.com/obot-platform/mmmcp/catalog"
 	"github.com/obot-platform/mmmcp/component"
 	"github.com/obot-platform/mmmcp/config"
-	"github.com/obot-platform/mmmcp/toolsearch"
 )
 
 func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
@@ -21,25 +20,22 @@ func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
 			mu                  sync.Mutex
 			previous            *catalog.Catalog
 			previousFingerprint string
-			previousMode        toolsearch.Mode
+			previousToolSearch  bool
 		)
 		handler := func(ctx context.Context, method string, request mcp.Request) (mcp.Result, error) {
 			compiled, fingerprint, err := c.catalogForRequest(ctx, request)
 			if err != nil {
 				return nil, err
 			}
-			mode := c.configForRequest(ctx, request).ToolSearchMode
-			if !mode.Valid() {
-				return nil, fmt.Errorf("invalid tool search mode %q", mode)
-			}
+			toolSearch := c.configForRequest(ctx, request).ToolSearch
 			if id, ok := ConfigIDFromContext(ctx); ok && request.GetSession().ID() == "" {
-				if cleanup := c.toolSubscriptions.observe(id, method, server, compiled, fingerprint, mode); cleanup != nil {
+				if cleanup := c.toolSubscriptions.observe(id, method, server, compiled, fingerprint, toolSearch); cleanup != nil {
 					defer cleanup()
 				}
 			} else {
 				mu.Lock()
-				toolsChanged := previous != nil && previousFingerprint != fingerprint && (previousMode != mode || !reflect.DeepEqual(previous.Tools(), compiled.Tools()))
-				previous, previousFingerprint, previousMode = compiled, fingerprint, mode
+				toolsChanged := previous != nil && previousFingerprint != fingerprint && (previousToolSearch != toolSearch || !reflect.DeepEqual(previous.Tools(), compiled.Tools()))
+				previous, previousFingerprint, previousToolSearch = compiled, fingerprint, toolSearch
 				mu.Unlock()
 				if toolsChanged && method != "tools/list" {
 					notifyFeatureChanged(server, component.FeatureTools)

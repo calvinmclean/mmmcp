@@ -76,14 +76,11 @@ func (d *durationValue) UnmarshalYAML(node *yaml.Node) error {
 
 func (d configDTO) runtime(lookup func(string) (string, bool)) (*Config, error) {
 	cfg := &Config{
-		Name:           strings.TrimSpace(d.Name),
-		Version:        strings.TrimSpace(d.Version),
-		ToolSearchMode: d.ToolSearchMode,
-		Listen:         d.Listen,
-		IdleTimeout:    d.IdleTimeout.runtime(),
-	}
-	if !cfg.ToolSearchMode.Valid() {
-		return nil, fmt.Errorf("toolSearchMode: invalid value %q", cfg.ToolSearchMode)
+		Name:        strings.TrimSpace(d.Name),
+		Version:     strings.TrimSpace(d.Version),
+		ToolSearch:  d.ToolSearch,
+		Listen:      d.Listen,
+		IdleTimeout: d.IdleTimeout.runtime(),
 	}
 	if len(d.Servers) == 0 {
 		return nil, errors.New("servers: at least one component is required")

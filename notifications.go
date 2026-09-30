@@ -9,7 +9,6 @@ import (
 	"github.com/obot-platform/mmmcp/catalog"
 	"github.com/obot-platform/mmmcp/component"
 	"github.com/obot-platform/mmmcp/config"
-	"github.com/obot-platform/mmmcp/toolsearch"
 )
 
 type configToolSubscriptions struct {
@@ -20,7 +19,7 @@ type configToolSubscriptions struct {
 type configToolSubscription struct {
 	catalog     *catalog.Catalog
 	fingerprint string
-	mode        toolsearch.Mode
+	toolSearch  bool
 	servers     map[*mcp.Server]struct{}
 }
 
@@ -36,17 +35,17 @@ type frontendBindings struct {
 }
 
 // observe retains snapshots only while a configuration has active listeners.
-func (s *configToolSubscriptions) observe(id, method string, server *mcp.Server, compiled *catalog.Catalog, fingerprint string, mode toolsearch.Mode) func() {
+func (s *configToolSubscriptions) observe(id, method string, server *mcp.Server, compiled *catalog.Catalog, fingerprint string, toolSearch bool) func() {
 	s.mu.Lock()
 	entry := s.configs[id]
 	var notify []*mcp.Server
 	if entry != nil {
-		if entry.fingerprint != fingerprint && (entry.mode != mode || !reflect.DeepEqual(entry.catalog.Tools(), compiled.Tools())) {
+		if entry.fingerprint != fingerprint && (entry.toolSearch != toolSearch || !reflect.DeepEqual(entry.catalog.Tools(), compiled.Tools())) {
 			for listener := range entry.servers {
 				notify = append(notify, listener)
 			}
 		}
-		entry.catalog, entry.fingerprint, entry.mode = compiled, fingerprint, mode
+		entry.catalog, entry.fingerprint, entry.toolSearch = compiled, fingerprint, toolSearch
 	}
 	var cleanup func()
 	if method == subscriptionsListenMethod {
@@ -54,7 +53,7 @@ func (s *configToolSubscriptions) observe(id, method string, server *mcp.Server,
 			entry = &configToolSubscription{
 				catalog:     compiled,
 				fingerprint: fingerprint,
-				mode:        mode,
+				toolSearch:  toolSearch,
 				servers:     make(map[*mcp.Server]struct{}),
 			}
 			if s.configs == nil {

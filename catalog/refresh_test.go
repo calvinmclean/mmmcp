@@ -11,7 +11,6 @@ import (
 	"github.com/obot-platform/mmmcp/catalog"
 	"github.com/obot-platform/mmmcp/component"
 	"github.com/obot-platform/mmmcp/config"
-	"github.com/obot-platform/mmmcp/toolsearch"
 )
 
 type mutableDiscoverer struct {
@@ -78,7 +77,7 @@ func TestSearchCatalogFailsClosedDuringAndAfterFailedRefresh(t *testing.T) {
 	defer registry.Close()
 
 	cfg := &config.Config{
-		ToolSearchMode: toolsearch.ModeSearch,
+		ToolSearch: true,
 		Servers: []config.Server{{
 			Name: "fixture",
 			URL:  "https://example.invalid",

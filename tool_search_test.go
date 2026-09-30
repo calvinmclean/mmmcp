@@ -13,7 +13,7 @@ import (
 	"github.com/obot-platform/mmmcp/toolsearch"
 )
 
-func TestToolSearchModesAndGenericInvocation(t *testing.T) {
+func TestToolSearchAndGenericInvocation(t *testing.T) {
 	fixture := testserver.New(t, testserver.Options{
 		Tools: []testserver.Tool{{
 			Definition: &mcp.Tool{
@@ -36,10 +36,14 @@ func TestToolSearchModesAndGenericInvocation(t *testing.T) {
 		}},
 	})
 
-	for _, mode := range []toolsearch.Mode{toolsearch.ModeOff, toolsearch.ModeSearch, toolsearch.ModeHybrid} {
-		t.Run(string(mode), func(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		name := "direct"
+		if enabled {
+			name = "search"
+		}
+		t.Run(name, func(t *testing.T) {
 			cfg := &config.Config{
-				ToolSearchMode: mode,
+				ToolSearch: enabled,
 				Servers: []config.Server{{
 					ID:   "component-1",
 					Name: "billing",
@@ -73,11 +77,10 @@ func TestToolSearchModesAndGenericInvocation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := map[toolsearch.Mode]int{
-				toolsearch.ModeOff:    1,
-				toolsearch.ModeSearch: 2,
-				toolsearch.ModeHybrid: 3,
-			}[mode]
+			want := 1
+			if enabled {
+				want = 2
+			}
 			if len(listed.Tools) != want {
 				t.Fatalf("listed %d tools, want %d: %+v", len(listed.Tools), want, listed.Tools)
 			}
@@ -86,7 +89,7 @@ func TestToolSearchModesAndGenericInvocation(t *testing.T) {
 				Name:      "lookup",
 				Arguments: map[string]any{"number": "123"},
 			})
-			if mode == toolsearch.ModeSearch {
+			if enabled {
 				if directErr == nil && !direct.IsError {
 					t.Fatal("guessed direct call succeeded in search mode")
 				}
@@ -94,7 +97,7 @@ func TestToolSearchModesAndGenericInvocation(t *testing.T) {
 				t.Fatalf("direct call failed: %v %+v", directErr, direct)
 			}
 
-			if mode == toolsearch.ModeOff {
+			if !enabled {
 				if _, err := session.CallTool(t.Context(), &mcp.CallToolParams{
 					Name:      toolsearch.SearchToolName,
 					Arguments: map[string]any{"query": "invoice"},

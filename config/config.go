@@ -1,20 +1,16 @@
 package config
 
-import (
-	"time"
-
-	"github.com/obot-platform/mmmcp/toolsearch"
-)
+import "time"
 
 // Config is a complete composite server configuration.
 type Config struct {
 	Name    string
 	Version string
-	// ToolSearchMode controls direct and generic tool access. Empty means off.
-	ToolSearchMode toolsearch.Mode
-	Listen         string
-	IdleTimeout    time.Duration
-	Servers        []Server
+	// ToolSearch exposes only search and generic call tools when enabled.
+	ToolSearch  bool
+	Listen      string
+	IdleTimeout time.Duration
+	Servers     []Server
 }
 
 // Server describes one component MCP server.
@@ -81,12 +77,12 @@ type ResourceTemplateOverride struct {
 }
 
 type configDTO struct {
-	Name           string          `yaml:"name"`
-	Version        string          `yaml:"version"`
-	ToolSearchMode toolsearch.Mode `yaml:"toolSearchMode"`
-	Listen         string          `yaml:"listen"`
-	IdleTimeout    durationValue   `yaml:"idleTimeout"`
-	Servers        []serverDTO     `yaml:"servers"`
+	Name        string        `yaml:"name"`
+	Version     string        `yaml:"version"`
+	ToolSearch  bool          `yaml:"toolSearch"`
+	Listen      string        `yaml:"listen"`
+	IdleTimeout durationValue `yaml:"idleTimeout"`
+	Servers     []serverDTO   `yaml:"servers"`
 }
 
 type serverDTO struct {

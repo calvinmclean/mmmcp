@@ -57,11 +57,15 @@ func TestEverythingServerIntegration(t *testing.T) {
 	defer everything.stop(t)
 	waitForTCP(t, everythingAddress, everything)
 
-	for _, mode := range []string{"off", "search", "hybrid"} {
+	for _, toolSearch := range []bool{false, true} {
+		mode := "direct"
+		if toolSearch {
+			mode = "search"
+		}
 		t.Run(mode, func(t *testing.T) {
 			frontendAddress := freeAddress(t)
 			configPath := filepath.Join(testDir, "mmmcp-"+mode+".yaml")
-			config := fmt.Sprintf(`toolSearchMode: %s
+			config := fmt.Sprintf(`toolSearch: %t
 listen: %s
 servers:
   - name: everything-http
@@ -75,7 +79,7 @@ servers:
     args: [%s, %s]
     env:
       npm_config_cache: %s
-`, mode, quote(frontendAddress), quote("http://"+everythingAddress+"/mcp"), quote(npx), quote("-y"), quote(everythingPackage), quote(npmCache))
+`, toolSearch, quote(frontendAddress), quote("http://"+everythingAddress+"/mcp"), quote(npx), quote("-y"), quote(everythingPackage), quote(npmCache))
 			if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -105,7 +109,7 @@ servers:
 				}
 				defer session.Close()
 
-				verifyEverythingServer(t, session, mode)
+				verifyEverythingServer(t, session, toolSearch)
 			})
 
 			t.Run("stdio frontend", func(t *testing.T) {
@@ -138,21 +142,20 @@ servers:
 					}
 				}()
 
-				verifyEverythingServer(t, session, mode)
+				verifyEverythingServer(t, session, toolSearch)
 			})
 		})
 	}
 }
 
-func verifyEverythingServer(t *testing.T, session *mcp.ClientSession, mode string) {
+func verifyEverythingServer(t *testing.T, session *mcp.ClientSession, toolSearch bool) {
 	t.Helper()
 	tools := collectTools(t, session)
 	toolNames := make([]string, 0, len(tools))
 	for _, tool := range tools {
 		toolNames = append(toolNames, tool.Name)
 	}
-	switch mode {
-	case "search":
+	if toolSearch {
 		want := map[string]int{
 			toolsearch.SearchToolName: 1,
 			toolsearch.CallToolName:   1,
@@ -160,12 +163,7 @@ func verifyEverythingServer(t *testing.T, session *mcp.ClientSession, mode strin
 		if !maps.Equal(mapFromNames(toolNames), want) {
 			t.Fatalf("search mode tools = %v, want only search and generic call", toolNames)
 		}
-	default:
-		if mode == "hybrid" {
-			if !removeName(&toolNames, toolsearch.SearchToolName) || !removeName(&toolNames, toolsearch.CallToolName) {
-				t.Fatalf("hybrid mode omitted synthetic tools: %v", toolNames)
-			}
-		}
+	} else {
 		requirePairedFeatures(t, "tools", toolNames, "http__", "stdio__")
 	}
 
@@ -185,7 +183,7 @@ func verifyEverythingServer(t *testing.T, session *mcp.ClientSession, mode strin
 
 	for _, prefix := range []string{"http", "stdio"} {
 		t.Run(prefix+" echo", func(t *testing.T) {
-			if mode == "search" {
+			if toolSearch {
 				verifyDirectToolUnavailable(t, session, prefix+"__echo")
 				return
 			}
@@ -193,7 +191,7 @@ func verifyEverythingServer(t *testing.T, session *mcp.ClientSession, mode strin
 			requireTextResult(t, result, "Echo: mmmcp integration")
 		})
 		t.Run(prefix+" get-sum", func(t *testing.T) {
-			if mode == "search" {
+			if toolSearch {
 				verifyDirectToolUnavailable(t, session, prefix+"__get-sum")
 				return
 			}
@@ -201,7 +199,7 @@ func verifyEverythingServer(t *testing.T, session *mcp.ClientSession, mode strin
 			requireTextResult(t, result, "The sum of 2 and 3 is 5.")
 		})
 	}
-	if mode != "off" {
+	if toolSearch {
 		verifyToolSearch(t, session)
 	}
 }
@@ -212,16 +210,6 @@ func mapFromNames(names []string) map[string]int {
 		result[name]++
 	}
 	return result
-}
-
-func removeName(names *[]string, target string) bool {
-	for i, name := range *names {
-		if name == target {
-			*names = append((*names)[:i], (*names)[i+1:]...)
-			return true
-		}
-	}
-	return false
 }
 
 func verifyDirectToolUnavailable(t *testing.T, session *mcp.ClientSession, name string) {

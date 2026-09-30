@@ -18,7 +18,7 @@ component discovery, and final identity collisions stop startup.
 ```yaml
 name: company-mcp
 version: 1.0.0
-toolSearchMode: hybrid
+toolSearch: true
 listen: 127.0.0.1:8080
 idleTimeout: 30s
 servers:
@@ -77,13 +77,12 @@ or called. Without overrides, all discovered tools are available. Set the server
 `disableTools: true` to expose no tools, regardless of overrides. Prompts and
 resources are unaffected.
 
-`toolSearchMode` accepts `off` (the default), `search`, and `hybrid`. `off`
-lists and calls component tools directly. `search` lists only
-`mmmcp_search_tools` and `mmmcp_call_tool` and rejects direct calls to component
-tools, even when their names are known. `hybrid` offers both access paths.
-Every path uses the same configured tool selection.
+`toolSearch` defaults to `false`, which lists and calls component tools directly.
+When `true`, it lists only `mmmcp_search_tools` and `mmmcp_call_tool` and rejects
+direct calls to component tools, even when their names are known. Search uses
+the same configured tool selection.
 
-Two tools are enabled when search mode is enabled:
+Two tools are enabled when tool search is enabled:
 - `mmmcp_search_tools`: queries the available tools. Results contain the effective
   tool definition, including its input schema. Results are ranked locally using
   Bleve BM25 on tool names, descriptions, component names, and input parameters.
