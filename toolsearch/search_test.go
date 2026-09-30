@@ -2,7 +2,9 @@ package toolsearch
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,6 +32,103 @@ func testIndex() *Index {
 			},
 		},
 	})
+}
+
+func TestSearchToolPagesAllMatches(t *testing.T) {
+	documents := make([]Document, 0, 26)
+	for n := range 25 {
+		name := fmt.Sprintf("tool_%02d", n)
+		documents = append(documents, Document{
+			ExposedName: name,
+			Component:   "fixture",
+			Reference:   Reference{ComponentID: "fixture", Name: name},
+			Revision:    "revision",
+			Tool:        &mcp.Tool{Name: name, Description: "shared lookup", InputSchema: map[string]any{"type": "object"}},
+		})
+	}
+	documents = append(documents, Document{
+		ExposedName: "lookup",
+		Component:   "fixture",
+		Reference:   Reference{ComponentID: "fixture", Name: "lookup"},
+		Revision:    "revision",
+		Tool:        &mcp.Tool{Name: "lookup", Description: "shared lookup", InputSchema: map[string]any{"type": "object"}},
+	})
+	index := New(documents)
+	if err := index.Build(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	seen := map[string]bool{}
+	for offset := 0; ; offset += 10 {
+		call, err := index.Call(t.Context(), map[string]any{"query": "lookup", "limit": 10, "offset": offset})
+		if err != nil || call.IsError {
+			t.Fatalf("search at offset %d: %+v, %v", offset, call, err)
+		}
+		results, ok := call.StructuredContent.(Results)
+		if !ok {
+			t.Fatalf("structured results: %T", call.StructuredContent)
+		}
+		var textResults Results
+		if err := json.Unmarshal([]byte(call.Content[0].(*mcp.TextContent).Text), &textResults); err != nil || len(textResults.Tools) != len(results.Tools) || textResults.HasMore != results.HasMore {
+			t.Fatalf("text and structured results differ: %+v, %+v, %v", textResults, results, err)
+		}
+		if offset == 0 && (len(results.Tools) == 0 || results.Tools[0].Tool.Name != "lookup") {
+			t.Fatalf("exact-name result was not first: %+v", results)
+		}
+		for _, hit := range results.Tools {
+			if seen[hit.Tool.Name] {
+				t.Fatalf("duplicate result %q at offset %d", hit.Tool.Name, offset)
+			}
+			seen[hit.Tool.Name] = true
+		}
+		if !results.HasMore {
+			if len(seen) != len(documents) {
+				t.Fatalf("reached end after %d of %d results", len(seen), len(documents))
+			}
+			break
+		}
+	}
+
+	call, err := index.Call(t.Context(), map[string]any{"query": "lookup", "limit": 20, "offset": 26})
+	if err != nil || call.IsError {
+		t.Fatalf("past-end search: %+v, %v", call, err)
+	}
+	results := call.StructuredContent.(Results)
+	if len(results.Tools) != 0 || results.HasMore {
+		t.Fatalf("past-end results: %+v", results)
+	}
+
+	call, err = index.Call(t.Context(), map[string]any{"query": "lookup", "limit": 26})
+	if err != nil || call.IsError {
+		t.Fatalf("unrestricted limit search: %+v, %v", call, err)
+	}
+	results = call.StructuredContent.(Results)
+	if len(results.Tools) != len(documents) || results.HasMore {
+		t.Fatalf("unrestricted limit results: %+v", results)
+	}
+
+	call, err = index.Call(t.Context(), map[string]any{"query": "lookup"})
+	if err != nil || call.IsError || len(call.StructuredContent.(Results).Tools) != 5 {
+		t.Fatalf("default limit results: %+v, %v", call, err)
+	}
+}
+
+func TestSearchToolRejectsNegativeOffset(t *testing.T) {
+	call, err := testIndex().Call(t.Context(), map[string]any{"query": "lookup", "offset": -1})
+	if err != nil || !call.IsError || !strings.Contains(call.Content[0].(*mcp.TextContent).Text, "offset") {
+		t.Fatalf("negative offset: %+v, %v", call, err)
+	}
+}
+
+func TestSearchToolDefinitionAllowsUnboundedPositiveLimit(t *testing.T) {
+	properties := Definitions()[0].InputSchema.(map[string]any)["properties"].(map[string]any)
+	limit := properties["limit"].(map[string]any)
+	if _, capped := limit["maximum"]; capped {
+		t.Fatalf("limit schema still has a maximum: %+v", limit)
+	}
+	if offset := properties["offset"].(map[string]any); offset["minimum"] != 0 {
+		t.Fatalf("offset schema: %+v", offset)
+	}
 }
 
 func TestAsyncIndexWaitTimeoutAndConcurrentSearch(t *testing.T) {

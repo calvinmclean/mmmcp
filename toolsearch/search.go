@@ -111,7 +111,7 @@ func Definitions() []*mcp.Tool {
 	return []*mcp.Tool{
 		{
 			Name:        SearchToolName,
-			Description: "Find available tools by name, description, and input parameters. Results include schemas and references for mmmcp_call_tool.",
+			Description: "Find available tools by name, description, and input parameters. Results include schemas and references for mmmcp_call_tool. Use offset to retrieve further results when hasMore is true.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -122,8 +122,13 @@ func Definitions() []*mcp.Tool {
 					"limit": map[string]any{
 						"type":    "integer",
 						"minimum": 1,
-						"maximum": 20,
 						"default": 5,
+					},
+					"offset": map[string]any{
+						"type":        "integer",
+						"minimum":     0,
+						"default":     0,
+						"description": "Number of ranked results to skip",
 					},
 				},
 				"required": []string{"query"},
@@ -395,10 +400,15 @@ func buildIndex(ctx context.Context, documents map[string]Document) (bleve.Index
 	return index, nil
 }
 
-// Search waits for a ready index and returns ranked matches from this snapshot.
+// Search returns the first page of ranked matches from this snapshot.
 func (i *Index) Search(ctx context.Context, text string, limit int) (Results, error) {
-	if strings.TrimSpace(text) == "" || limit < 1 || limit > 20 {
-		return Results{}, fmt.Errorf("query must be nonempty and limit must be between 1 and 20")
+	return i.SearchPage(ctx, text, limit, 0)
+}
+
+// SearchPage waits for a ready index and returns ranked matches after offset.
+func (i *Index) SearchPage(ctx context.Context, text string, limit, offset int) (Results, error) {
+	if strings.TrimSpace(text) == "" || limit < 1 || offset < 0 {
+		return Results{}, fmt.Errorf("query must be nonempty, limit must be positive, and offset must be nonnegative")
 	}
 
 	if err := i.await(ctx, i.waitTimeout); err != nil {
@@ -408,6 +418,16 @@ func (i *Index) Search(ctx context.Context, text string, limit int) (Results, er
 	i.mu.RLock()
 	index := i.index
 	i.mu.RUnlock()
+	if offset >= len(i.documents) {
+		return Results{Tools: []Hit{}}, nil
+	}
+
+	// Fetch the prefix so exact-name promotion happens before taking the page.
+	end := offset + min(limit, len(i.documents)-offset)
+	fetch := end
+	if fetch < len(i.documents) {
+		fetch++
+	}
 
 	var clauses []query.Query
 	fields := []struct {
@@ -439,7 +459,8 @@ func (i *Index) Search(ctx context.Context, text string, limit int) (Results, er
 		clauses = append(clauses, q)
 	}
 
-	request := bleve.NewSearchRequestOptions(bleve.NewDisjunctionQuery(clauses...), limit+1, 0, false)
+	request := bleve.NewSearchRequestOptions(bleve.NewDisjunctionQuery(clauses...), fetch, 0, false)
+	request.SortBy([]string{"-_score", "_id"})
 	result, err := index.SearchInContext(ctx, request)
 	if err != nil {
 		return Results{}, err
@@ -472,10 +493,10 @@ func (i *Index) Search(ctx context.Context, text string, limit int) (Results, er
 	})
 
 	response := Results{
-		HasMore: len(result.Hits) > limit,
-		Tools:   make([]Hit, 0, min(len(result.Hits), limit)),
+		HasMore: len(result.Hits) > end,
+		Tools:   make([]Hit, 0, max(0, min(len(result.Hits), end)-offset)),
 	}
-	for _, found := range result.Hits[:min(len(result.Hits), limit)] {
+	for _, found := range result.Hits[min(offset, len(result.Hits)):min(end, len(result.Hits))] {
 		doc := i.documents[found.ID]
 		response.Tools = append(response.Tools, Hit{
 			Reference: doc.Reference,
@@ -491,27 +512,28 @@ func (i *Index) Search(ctx context.Context, text string, limit int) (Results, er
 // Call handles the search MCP tool's arguments and result formatting.
 func (i *Index) Call(ctx context.Context, arguments any) (*mcp.CallToolResult, error) {
 	var params struct {
-		Query string `json:"query"`
-		Limit int    `json:"limit"`
+		Query  string `json:"query"`
+		Limit  int    `json:"limit"`
+		Offset int    `json:"offset"`
 	}
 
 	data, err := json.Marshal(arguments)
 	if err != nil {
-		return toolError("INVALID_ARGUMENTS: expected query and optional limit"), nil
+		return toolError("INVALID_ARGUMENTS: expected query and optional limit and offset"), nil
 	}
 	if err := json.Unmarshal(data, &params); err != nil {
-		return toolError("INVALID_ARGUMENTS: expected query and optional limit"), nil
+		return toolError("INVALID_ARGUMENTS: expected query and optional limit and offset"), nil
 	}
 
 	if params.Limit == 0 {
 		params.Limit = 5
 	}
 
-	if strings.TrimSpace(params.Query) == "" || params.Limit < 1 || params.Limit > 20 {
-		return toolError("INVALID_ARGUMENTS: query must be nonempty and limit must be between 1 and 20"), nil
+	if strings.TrimSpace(params.Query) == "" || params.Limit < 1 || params.Offset < 0 {
+		return toolError("INVALID_ARGUMENTS: query must be nonempty, limit must be positive, and offset must be nonnegative"), nil
 	}
 
-	results, err := i.Search(ctx, params.Query, params.Limit)
+	results, err := i.SearchPage(ctx, params.Query, params.Limit, params.Offset)
 	if errors.Is(err, ErrNotReady) {
 		return toolError("SEARCH_INDEX_NOT_READY: Tool search is still indexing; retry shortly."), nil
 	}

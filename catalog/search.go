@@ -44,10 +44,15 @@ func (c *Catalog) StopSearchIndex() {
 }
 
 func (c *Catalog) Search(ctx context.Context, text string, limit int) (toolsearch.Results, error) {
+	return c.SearchPage(ctx, text, limit, 0)
+}
+
+// SearchPage returns ranked tool matches after offset.
+func (c *Catalog) SearchPage(ctx context.Context, text string, limit, offset int) (toolsearch.Results, error) {
 	if c.searchIndex == nil {
 		return toolsearch.Results{}, fmt.Errorf("tool search is disabled")
 	}
-	return c.searchIndex.Search(ctx, text, limit)
+	return c.searchIndex.SearchPage(ctx, text, limit, offset)
 }
 
 func (c *Catalog) SearchTool(ctx context.Context, arguments any) (*mcp.CallToolResult, error) {
