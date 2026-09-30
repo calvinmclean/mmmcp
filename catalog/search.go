@@ -79,12 +79,12 @@ func (c *Catalog) RouteReference(ref ToolReference) (ToolRoute, *mcp.Tool, strin
 	return ToolRoute{}, nil, "", false
 }
 
-func (c *Catalog) PageToolsMode(mode string, cursor string, pageSize int) ([]*mcp.Tool, string, error) {
+func (c *Catalog) PageToolsMode(mode toolsearch.Mode, cursor string, pageSize int) ([]*mcp.Tool, string, error) {
 	tools := append([]*mcp.Tool(nil), c.tools...)
-	if mode == "search" {
+	if mode == toolsearch.ModeSearch {
 		tools = nil
 	}
-	if mode == "search" || mode == "hybrid" {
+	if mode.Enabled() {
 		tools = append(tools, toolsearch.Definitions()...)
 	}
 	slices.SortFunc(tools, func(a, b *mcp.Tool) int { return strings.Compare(a.Name, b.Name) })

@@ -2,12 +2,8 @@ package config
 
 import (
 	"time"
-)
 
-const (
-	ToolSearchOff    ToolSearchMode = "off"
-	ToolSearchSearch ToolSearchMode = "search"
-	ToolSearchHybrid ToolSearchMode = "hybrid"
+	"github.com/obot-platform/mmmcp/toolsearch"
 )
 
 // Config is a complete composite server configuration.
@@ -15,13 +11,11 @@ type Config struct {
 	Name    string
 	Version string
 	// ToolSearchMode controls direct and generic tool access. Empty means off.
-	ToolSearchMode ToolSearchMode
+	ToolSearchMode toolsearch.Mode
 	Listen         string
 	IdleTimeout    time.Duration
 	Servers        []Server
 }
-
-type ToolSearchMode string
 
 // Server describes one component MCP server.
 type Server struct {
@@ -87,12 +81,12 @@ type ResourceTemplateOverride struct {
 }
 
 type configDTO struct {
-	Name           string         `yaml:"name"`
-	Version        string         `yaml:"version"`
-	ToolSearchMode ToolSearchMode `yaml:"toolSearchMode"`
-	Listen         string         `yaml:"listen"`
-	IdleTimeout    durationValue  `yaml:"idleTimeout"`
-	Servers        []serverDTO    `yaml:"servers"`
+	Name           string          `yaml:"name"`
+	Version        string          `yaml:"version"`
+	ToolSearchMode toolsearch.Mode `yaml:"toolSearchMode"`
+	Listen         string          `yaml:"listen"`
+	IdleTimeout    durationValue   `yaml:"idleTimeout"`
+	Servers        []serverDTO     `yaml:"servers"`
 }
 
 type serverDTO struct {
@@ -153,15 +147,6 @@ type resourceTemplateOverrideDTO struct {
 
 type durationValue struct {
 	time.Duration
-}
-
-func (m ToolSearchMode) Valid() bool {
-	switch m {
-	case "", ToolSearchOff, ToolSearchSearch, ToolSearchHybrid:
-		return true
-	default:
-		return false
-	}
 }
 
 func enabledOrDefault(enabled *bool) bool {

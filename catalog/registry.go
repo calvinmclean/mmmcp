@@ -80,10 +80,10 @@ func (r *Registry) Get(ctx context.Context, cfg *config.Config) (*Catalog, strin
 		case <-entry.ready:
 			r.mu.Lock()
 			catalog, entryErr := entry.catalog, entry.err
-			if cfg.ToolSearchMode != "" && cfg.ToolSearchMode != config.ToolSearchOff && time.Since(entry.refreshed) >= time.Minute {
+			if cfg.ToolSearchMode.Enabled() && time.Since(entry.refreshed) >= time.Minute {
 				entry.stale = true
 			}
-			if entry.stale && cfg.ToolSearchMode != "" && cfg.ToolSearchMode != config.ToolSearchOff {
+			if entry.stale && cfg.ToolSearchMode.Enabled() {
 				entryErr = ErrCatalogUnavailable
 				if !entry.refreshing && entry.timer == nil && !r.closed {
 					entry.timer = time.AfterFunc(refreshDebounce, func() { r.runRefresh(fingerprint) })
@@ -122,7 +122,7 @@ func (r *Registry) Refresh(ctx context.Context, cfg *config.Config) (*Catalog, s
 	}
 	compiled, err := compile(ctx, cfg, r.discoverer)
 	if err != nil {
-		if cfg.ToolSearchMode != "" && cfg.ToolSearchMode != config.ToolSearchOff {
+		if cfg.ToolSearchMode.Enabled() {
 			r.mu.Lock()
 			if entry := r.entries[fingerprint]; entry != nil {
 				entry.stale = true
@@ -156,7 +156,7 @@ func (r *Registry) RequestRefresh(fingerprint string, callback func(bool)) {
 	if callback != nil {
 		entry.callbacks = append(entry.callbacks, callback)
 	}
-	if entry.config.ToolSearchMode != "" && entry.config.ToolSearchMode != config.ToolSearchOff {
+	if entry.config.ToolSearchMode.Enabled() {
 		entry.stale = true
 	}
 	if entry.refreshing {

@@ -15,6 +15,7 @@ import (
 	"github.com/obot-platform/mmmcp/catalog"
 	"github.com/obot-platform/mmmcp/config"
 	"github.com/obot-platform/mmmcp/testserver"
+	"github.com/obot-platform/mmmcp/toolsearch"
 )
 
 type operationWireCase struct {
@@ -98,7 +99,7 @@ func TestSyntheticToolResultsUseFrontendProtocol(t *testing.T) {
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}, nil
 		},
 	}}})
-	composite, err := mmmcp.New(t.Context(), &config.Config{ToolSearchMode: config.ToolSearchSearch, Servers: []config.Server{{Name: "fixture", URL: fixture.URL}}}, mmmcp.Options{})
+	composite, err := mmmcp.New(t.Context(), &config.Config{ToolSearchMode: toolsearch.ModeSearch, Servers: []config.Server{{Name: "fixture", URL: fixture.URL}}}, mmmcp.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

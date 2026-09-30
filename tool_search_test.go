@@ -20,7 +20,7 @@ func TestToolSearchModesAndGenericInvocation(t *testing.T) {
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(req.Params.Arguments)}}}, nil
 		},
 	}}})
-	for _, mode := range []config.ToolSearchMode{config.ToolSearchOff, config.ToolSearchSearch, config.ToolSearchHybrid} {
+	for _, mode := range []toolsearch.Mode{toolsearch.ModeOff, toolsearch.ModeSearch, toolsearch.ModeHybrid} {
 		t.Run(string(mode), func(t *testing.T) {
 			cfg := &config.Config{ToolSearchMode: mode, Servers: []config.Server{{ID: "component-1", Name: "billing", URL: fixture.URL}}}
 			composite, err := mmmcp.New(t.Context(), cfg, mmmcp.Options{})
@@ -40,19 +40,19 @@ func TestToolSearchModesAndGenericInvocation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := map[config.ToolSearchMode]int{config.ToolSearchOff: 1, config.ToolSearchSearch: 2, config.ToolSearchHybrid: 3}[mode]
+			want := map[toolsearch.Mode]int{toolsearch.ModeOff: 1, toolsearch.ModeSearch: 2, toolsearch.ModeHybrid: 3}[mode]
 			if len(listed.Tools) != want {
 				t.Fatalf("listed %d tools, want %d: %+v", len(listed.Tools), want, listed.Tools)
 			}
 			direct, directErr := session.CallTool(t.Context(), &mcp.CallToolParams{Name: "lookup", Arguments: map[string]any{"number": "123"}})
-			if mode == config.ToolSearchSearch {
+			if mode == toolsearch.ModeSearch {
 				if directErr == nil && !direct.IsError {
 					t.Fatal("guessed direct call succeeded in search mode")
 				}
 			} else if directErr != nil || direct.IsError {
 				t.Fatalf("direct call failed: %v %+v", directErr, direct)
 			}
-			if mode == config.ToolSearchOff {
+			if mode == toolsearch.ModeOff {
 				if _, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: toolsearch.SearchToolName, Arguments: map[string]any{"query": "invoice"}}); err == nil {
 					t.Fatal("search tool was callable in off mode")
 				}

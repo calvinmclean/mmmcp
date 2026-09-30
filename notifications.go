@@ -9,6 +9,7 @@ import (
 	"github.com/obot-platform/mmmcp/catalog"
 	"github.com/obot-platform/mmmcp/component"
 	"github.com/obot-platform/mmmcp/config"
+	"github.com/obot-platform/mmmcp/toolsearch"
 )
 
 type configToolSubscriptions struct {
@@ -19,7 +20,7 @@ type configToolSubscriptions struct {
 type configToolSubscription struct {
 	catalog     *catalog.Catalog
 	fingerprint string
-	mode        config.ToolSearchMode
+	mode        toolsearch.Mode
 	servers     map[*mcp.Server]struct{}
 }
 
@@ -35,7 +36,7 @@ type frontendBindings struct {
 }
 
 // observe retains snapshots only while a configuration has active listeners.
-func (s *configToolSubscriptions) observe(id, method string, server *mcp.Server, compiled *catalog.Catalog, fingerprint string, mode config.ToolSearchMode) func() {
+func (s *configToolSubscriptions) observe(id, method string, server *mcp.Server, compiled *catalog.Catalog, fingerprint string, mode toolsearch.Mode) func() {
 	s.mu.Lock()
 	entry := s.configs[id]
 	var notify []*mcp.Server

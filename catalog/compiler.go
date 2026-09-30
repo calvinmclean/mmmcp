@@ -27,7 +27,7 @@ func compile(ctx context.Context, cfg *config.Config, discoverer component.Disco
 		return nil, fmt.Errorf("invalid tool search mode %q", cfg.ToolSearchMode)
 	}
 	result := newCompileCatalog()
-	result.reserveSynthetic = cfg.ToolSearchMode == config.ToolSearchSearch || cfg.ToolSearchMode == config.ToolSearchHybrid
+	result.reserveSynthetic = cfg.ToolSearchMode.Enabled()
 	componentIDs := make(map[string]bool, len(cfg.Servers))
 	prefixes := make([]string, len(cfg.Servers))
 	for i, server := range cfg.Servers {
@@ -66,7 +66,7 @@ func compile(ctx context.Context, cfg *config.Config, discoverer component.Disco
 		}
 	}
 	compiled, err := newCatalog(result)
-	if err != nil || cfg.ToolSearchMode == "" || cfg.ToolSearchMode == config.ToolSearchOff {
+	if err != nil || !cfg.ToolSearchMode.Enabled() {
 		return compiled, err
 	}
 	compiled.searchIndex = toolsearch.New(compiled.searchDocuments())

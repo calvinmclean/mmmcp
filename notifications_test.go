@@ -5,18 +5,18 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/obot-platform/mmmcp/catalog"
-	"github.com/obot-platform/mmmcp/config"
+	"github.com/obot-platform/mmmcp/toolsearch"
 )
 
 func TestConfigToolSubscriptionsReleaseSnapshots(t *testing.T) {
 	var subscriptions configToolSubscriptions
 	compiled := &catalog.Catalog{}
 	first, second := &mcp.Server{}, &mcp.Server{}
-	if cleanup := subscriptions.observe("id", "tools/list", first, compiled, "same", config.ToolSearchOff); cleanup != nil || len(subscriptions.configs) != 0 {
+	if cleanup := subscriptions.observe("id", "tools/list", first, compiled, "same", toolsearch.ModeOff); cleanup != nil || len(subscriptions.configs) != 0 {
 		t.Fatal("request without listeners retained tracking")
 	}
-	closeFirst := subscriptions.observe("id", subscriptionsListenMethod, first, compiled, "same", config.ToolSearchOff)
-	closeSecond := subscriptions.observe("id", subscriptionsListenMethod, second, compiled, "same", config.ToolSearchOff)
+	closeFirst := subscriptions.observe("id", subscriptionsListenMethod, first, compiled, "same", toolsearch.ModeOff)
+	closeSecond := subscriptions.observe("id", subscriptionsListenMethod, second, compiled, "same", toolsearch.ModeOff)
 	closeFirst()
 	if entry := subscriptions.configs["id"]; entry == nil || len(entry.servers) != 1 {
 		t.Fatal("closing one listener removed the remaining listener")
