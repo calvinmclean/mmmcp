@@ -80,7 +80,7 @@ func TestSearchUsesOnlyCompiledToolsAndStableReferences(t *testing.T) {
 	}
 	if len(results.Tools) == 0 || results.Tools[0].Reference != (toolsearch.Reference{
 		ComponentID: "one",
-		Name:        "lookup",
+		Name:        "current__lookup",
 	}) {
 		t.Fatalf("search results: %+v", results)
 	}
@@ -188,7 +188,7 @@ func TestSearchUsesEffectiveOverrides(t *testing.T) {
 			t.Fatalf("search %q: %+v, %v", query, results, err)
 		}
 		hit := results.Tools[0]
-		if hit.Tool.Name != "billing__modernname" || hit.Tool.Description != "configuredphrase" || hit.Tool.Annotations != annotations || hit.Tool.InputSchema == nil || hit.Reference.Name != "legacytoken" {
+		if hit.Tool.Name != "billing__modernname" || hit.Tool.Description != "configuredphrase" || hit.Tool.Annotations != annotations || hit.Tool.InputSchema == nil || hit.Reference.Name != "billing__modernname" {
 			t.Fatalf("search %q returned wrong effective definition: %+v", query, hit)
 		}
 	}
@@ -213,7 +213,7 @@ func TestSearchUsesEffectiveOverrides(t *testing.T) {
 	args, err := json.Marshal(map[string]any{
 		"tool": toolsearch.Reference{
 			ComponentID: "billing",
-			Name:        "legacytoken",
+			Name:        "billing__modernname",
 		},
 		"revision": "bad",
 	})

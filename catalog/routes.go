@@ -9,9 +9,10 @@ import (
 
 // ToolRoute maps an exposed tool identity back to its component identity.
 type ToolRoute struct {
-	Component config.Server
-	Prefix    string
-	Tool      *mcp.Tool
+	Component   config.Server
+	Prefix      string
+	Tool        *mcp.Tool
+	ExposedName string
 }
 
 // PromptRoute maps an exposed prompt identity back to its component identity.
@@ -46,7 +47,7 @@ func (r ToolRoute) Reference() toolsearch.Reference {
 	}
 	return toolsearch.Reference{
 		ComponentID: id,
-		Name:        r.Tool.Name,
+		Name:        r.ExposedName,
 	}
 }
 

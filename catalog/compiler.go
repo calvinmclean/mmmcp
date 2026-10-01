@@ -25,17 +25,8 @@ type discoveryResult struct {
 func compile(ctx context.Context, cfg *config.Config, discoverer component.Discoverer) (*Catalog, error) {
 	result := newCompileCatalog()
 	result.toolSearch = cfg.ToolSearch
-	componentIDs := make(map[string]bool, len(cfg.Servers))
 	prefixes := make([]string, len(cfg.Servers))
 	for i, server := range cfg.Servers {
-		id := server.ID
-		if id == "" {
-			id = server.Name
-		}
-		if componentIDs[id] {
-			return nil, fmt.Errorf("duplicate component ID %q", id)
-		}
-		componentIDs[id] = true
 		if len(cfg.Servers) <= 1 && server.Prefix == "" {
 			continue
 		}
@@ -183,7 +174,7 @@ func compileTools(c *Catalog, server config.Server, prefix string, discovered []
 			clone.Description = override.OverrideDescription
 		}
 		c.tools = append(c.tools, &clone)
-		c.toolRoutes[name] = ToolRoute{Component: server, Prefix: prefix, Tool: tool}
+		c.toolRoutes[name] = ToolRoute{Component: server, Prefix: prefix, Tool: tool, ExposedName: name}
 	}
 	return nil
 }

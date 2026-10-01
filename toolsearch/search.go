@@ -38,7 +38,7 @@ var (
 	separators    = strings.NewReplacer("_", " ", "-", " ", "/", " ", ".", " ")
 )
 
-// Reference identifies a tool by its original component and tool names.
+// Reference identifies a tool by its component ID and exposed tool name.
 type Reference struct {
 	ComponentID string `json:"componentID"`
 	Name        string `json:"name"`
