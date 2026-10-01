@@ -110,6 +110,11 @@ func TestSearchToolPagesAllMatches(t *testing.T) {
 	if err != nil || call.IsError || len(call.StructuredContent.(Results).Tools) != 5 {
 		t.Fatalf("default limit results: %+v, %v", call, err)
 	}
+
+	call, err = index.Call(t.Context(), map[string]any{"query": "lookup", "limit": 0})
+	if err != nil || call.IsError || len(call.StructuredContent.(Results).Tools) != 5 {
+		t.Fatalf("zero limit results: %+v, %v", call, err)
+	}
 }
 
 func TestSearchToolRejectsNegativeOffset(t *testing.T) {
