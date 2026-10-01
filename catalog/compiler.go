@@ -174,7 +174,7 @@ func compileTools(c *Catalog, server config.Server, prefix string, discovered []
 		if existing, ok := c.toolRoutes[name]; ok {
 			return collision("tool name", name, existing.Component.Name, server.Name)
 		}
-		if c.reserveSynthetic && (name == toolsearch.SearchToolName || name == toolsearch.CallToolName) {
+		if c.reserveSynthetic && toolsearch.IsToolCall(name) {
 			return fmt.Errorf("tool name %q is reserved; change the component prefix or tool override", name)
 		}
 		clone := *tool

@@ -32,10 +32,13 @@ type ResolvedToolCall struct {
 	Result    *mcp.CallToolResult
 }
 
+// configureToolCalls selects the names clients can list and call for this catalog.
+// Component routes remain available internally for generic calls in search mode.
 func (c *Catalog) configureToolCalls(toolSearch bool) {
-	c.toolCalls = make(map[string]toolCallKind, len(c.tools)+2)
 	if toolSearch {
-		for _, tool := range toolsearch.Definitions() {
+		definitions := toolsearch.Definitions()
+		c.toolCalls = make(map[string]toolCallKind, len(definitions))
+		for _, tool := range definitions {
 			c.visibleTools = append(c.visibleTools, tool)
 			switch tool.Name {
 			case toolsearch.SearchToolName:
@@ -45,6 +48,7 @@ func (c *Catalog) configureToolCalls(toolSearch bool) {
 			}
 		}
 	} else {
+		c.toolCalls = make(map[string]toolCallKind, len(c.tools))
 		c.visibleTools = append(c.visibleTools, c.tools...)
 		for _, tool := range c.tools {
 			c.toolCalls[tool.Name] = toolCallDirect

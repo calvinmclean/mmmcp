@@ -88,6 +88,11 @@ type Index struct {
 	retryDelay  time.Duration
 }
 
+// IsToolCall reports whether name belongs to a tool implemented by toolsearch.
+func IsToolCall(name string) bool {
+	return name == SearchToolName || name == CallToolName
+}
+
 // ParseCallArguments validates a generic tool call and defaults omitted arguments to an empty object.
 func ParseCallArguments(arguments any) (CallArguments, error) {
 	var args CallArguments
