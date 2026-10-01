@@ -1,12 +1,19 @@
 package mmmcp
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/obot-platform/mmmcp/catalog"
+	"github.com/obot-platform/mmmcp/component"
 	"github.com/obot-platform/mmmcp/config"
 	"github.com/obot-platform/mmmcp/storage"
 	"github.com/obot-platform/mmmcp/testserver"
@@ -68,6 +75,66 @@ func TestReadinessReportsDegradedCatalogWithoutFailingProbe(t *testing.T) {
 	if check := response.Checks["catalog"]; check.Status != "degraded" || check.Reason != "refresh_failed" {
 		t.Fatalf("catalog check = %+v", check)
 	}
+}
+
+func TestReadinessRecoversAfterAutomaticCatalogRetry(t *testing.T) {
+	composite := newProbeComposite(t)
+	composite.registry.Close()
+
+	discoverer := &probeDiscoverer{}
+	composite.registry = catalog.NewRegistry(discoverer)
+	composite.defaultConfig = &config.Config{
+		ToolSearch: true,
+		Servers:    []config.Server{{Name: "fixture", URL: "https://example.invalid"}},
+	}
+	_, fingerprint, err := composite.registry.Get(t.Context(), composite.defaultConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	composite.defaultCatalogFingerprint = fingerprint
+
+	discoverer.setError(errors.New("discovery failed"))
+	callbacks := composite.callbacksForComponent(nil, composite.defaultConfig, fingerprint, "fixture", "")
+	callbacks.ListChanged(t.Context(), component.FeatureTools)
+
+	deadline := time.After(time.Second)
+	for !composite.catalogDegraded.Load() {
+		select {
+		case <-deadline:
+			t.Fatal("failed notification refresh did not degrade the catalog")
+		case <-time.After(time.Millisecond):
+		}
+	}
+
+	discoverer.setError(nil)
+	if _, _, err := composite.registry.Get(t.Context(), composite.defaultConfig); err != nil {
+		t.Fatalf("automatic retry: %v", err)
+	}
+
+	recorder, response := requestProbe(t, composite, http.MethodGet, "/readyz")
+	if recorder.Code != http.StatusOK || response.Status != "ok" || response.Checks["catalog"].Status != "ok" {
+		t.Fatalf("recovered readiness = %d, %+v", recorder.Code, response)
+	}
+}
+
+type probeDiscoverer struct {
+	mu  sync.Mutex
+	err error
+}
+
+func (d *probeDiscoverer) Discover(context.Context, config.Server) (*component.Features, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.err != nil {
+		return nil, d.err
+	}
+	return &component.Features{Tools: []*mcp.Tool{{Name: "lookup", InputSchema: map[string]any{"type": "object"}}}}, nil
+}
+
+func (d *probeDiscoverer) setError(err error) {
+	d.mu.Lock()
+	d.err = err
+	d.mu.Unlock()
 }
 
 func TestStorageFailureAffectsReadinessNotHealth(t *testing.T) {

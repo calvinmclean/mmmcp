@@ -58,11 +58,17 @@ func (c *Composite) serveReady(w http.ResponseWriter, r *http.Request) {
 	if _, _, err := c.registry.Get(ctx, c.defaultConfig); err != nil {
 		response.Status = "unavailable"
 		response.Checks["catalog"] = probeCheck{Status: "error", Reason: "catalog_unavailable"}
-	} else if c.catalogDegraded.Load() {
-		response.Status = "degraded"
-		response.Checks["catalog"] = probeCheck{Status: "degraded", Reason: "refresh_failed"}
 	} else {
-		response.Checks["catalog"] = probeCheck{Status: "ok"}
+		// A successful tool-search Get guarantees that any stale catalog was refreshed.
+		if c.defaultConfig.ToolSearch {
+			c.catalogDegraded.Store(false)
+		}
+		if c.catalogDegraded.Load() {
+			response.Status = "degraded"
+			response.Checks["catalog"] = probeCheck{Status: "degraded", Reason: "refresh_failed"}
+		} else {
+			response.Checks["catalog"] = probeCheck{Status: "ok"}
+		}
 	}
 
 	store, ok := c.defaultStore.(*storage.SQLStore)
