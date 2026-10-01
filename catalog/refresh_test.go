@@ -20,6 +20,103 @@ type mutableDiscoverer struct {
 	count int
 }
 
+type blockedRefreshDiscoverer struct {
+	mu      sync.Mutex
+	calls   int
+	started chan struct{}
+	release chan struct{}
+}
+
+func TestSearchCatalogWaitsForRefresh(t *testing.T) {
+	discoverer := &blockedRefreshDiscoverer{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	registry := catalog.NewRegistry(discoverer)
+	defer registry.Close()
+	cfg := &config.Config{
+		ToolSearch: true,
+		Servers:    []config.Server{{Name: "fixture", URL: "https://example.invalid"}},
+	}
+	_, fingerprint, err := registry.Get(t.Context(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	registry.RequestRefresh(fingerprint, nil)
+	type result struct {
+		catalog *catalog.Catalog
+		err     error
+	}
+	done := make(chan result, 1)
+	go func() {
+		compiled, _, err := registry.Get(t.Context(), cfg)
+		done <- result{catalog: compiled, err: err}
+	}()
+
+	select {
+	case <-discoverer.started:
+	case <-time.After(time.Second):
+		t.Fatal("refresh did not start")
+	}
+	select {
+	case got := <-done:
+		t.Fatalf("Get returned before refresh completed: %v", got.err)
+	default:
+	}
+
+	close(discoverer.release)
+	select {
+	case got := <-done:
+		if got.err != nil || got.catalog.Tools()[0].Name != "second" {
+			t.Fatalf("Get returned %+v, %v", got.catalog, got.err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Get did not resume after refresh")
+	}
+}
+
+func TestSearchCatalogRefreshWaitHonorsCancellation(t *testing.T) {
+	discoverer := &blockedRefreshDiscoverer{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	registry := catalog.NewRegistry(discoverer)
+	defer registry.Close()
+	cfg := &config.Config{
+		ToolSearch: true,
+		Servers:    []config.Server{{Name: "fixture", URL: "https://example.invalid"}},
+	}
+	_, fingerprint, err := registry.Get(t.Context(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	registry.RequestRefresh(fingerprint, nil)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := registry.Get(ctx, cfg)
+		done <- err
+	}()
+
+	select {
+	case <-discoverer.started:
+	case <-time.After(time.Second):
+		t.Fatal("refresh did not start")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Get returned %v, want context canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Get did not stop waiting after cancellation")
+	}
+	close(discoverer.release)
+}
+
 func TestRegistryRefreshDebouncesAndKeepsLastKnownGood(t *testing.T) {
 	discoverer := &mutableDiscoverer{name: "first"}
 	registry := catalog.NewRegistry(discoverer)
@@ -138,4 +235,24 @@ func (d *mutableDiscoverer) countValue() int {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.count
+}
+
+func (d *blockedRefreshDiscoverer) Discover(ctx context.Context, _ config.Server) (*component.Features, error) {
+	d.mu.Lock()
+	d.calls++
+	call := d.calls
+	d.mu.Unlock()
+	if call == 2 {
+		close(d.started)
+		select {
+		case <-d.release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	name := "first"
+	if call > 1 {
+		name = "second"
+	}
+	return &component.Features{Tools: []*mcp.Tool{{Name: name, InputSchema: map[string]any{"type": "object"}}}}, nil
 }

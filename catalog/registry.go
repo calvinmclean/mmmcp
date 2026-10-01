@@ -18,8 +18,8 @@ const (
 )
 
 var (
-	// ErrCatalogUnavailable means a search-enabled catalog must refresh before use.
-	ErrCatalogUnavailable = fmt.Errorf("CATALOG_UNAVAILABLE: tool catalog is refreshing; retry")
+	// ErrCatalogUnavailable means a search-enabled catalog could not refresh.
+	ErrCatalogUnavailable = fmt.Errorf("CATALOG_UNAVAILABLE: tool catalog refresh failed; retry")
 )
 
 // Registry caches immutable catalogs by complete configuration fingerprint.
@@ -34,16 +34,17 @@ type Registry struct {
 }
 
 type registryEntry struct {
-	ready      chan struct{}
-	catalog    *Catalog
-	err        error
-	config     *config.Config
-	refreshing bool
-	pending    bool
-	timer      *time.Timer
-	callbacks  []func(bool)
-	stale      bool
-	refreshed  time.Time
+	ready       chan struct{}
+	catalog     *Catalog
+	err         error
+	config      *config.Config
+	refreshing  bool
+	pending     bool
+	timer       *time.Timer
+	callbacks   []func(bool)
+	stale       bool
+	refreshDone chan struct{}
+	refreshed   time.Time
 }
 
 // NewRegistry creates a catalog registry.
@@ -89,10 +90,30 @@ func (r *Registry) Get(ctx context.Context, cfg *config.Config) (*Catalog, strin
 				entry.stale = true
 			}
 			if entry.stale && cfg.ToolSearch {
-				entryErr = ErrCatalogUnavailable
+				if r.closed {
+					r.mu.Unlock()
+					return nil, fingerprint, context.Canceled
+				}
+				if entry.refreshDone == nil {
+					entry.refreshDone = make(chan struct{})
+				}
+				done := entry.refreshDone
 				if !entry.refreshing && entry.timer == nil && !r.closed {
 					entry.timer = time.AfterFunc(refreshDebounce, func() { r.runRefresh(fingerprint) })
 				}
+				r.mu.Unlock()
+				select {
+				case <-done:
+				case <-ctx.Done():
+					return nil, fingerprint, ctx.Err()
+				}
+				r.mu.Lock()
+				current := r.entries[fingerprint]
+				if current == nil || current.stale {
+					r.mu.Unlock()
+					return nil, fingerprint, ErrCatalogUnavailable
+				}
+				catalog, entryErr = current.catalog, current.err
 			}
 			r.mu.Unlock()
 			return catalog, fingerprint, entryErr
@@ -147,6 +168,10 @@ func (r *Registry) Refresh(ctx context.Context, cfg *config.Config) (*Catalog, s
 	r.mu.Lock()
 	old := r.entries[fingerprint]
 	r.entries[fingerprint] = entry
+	if old != nil && old.refreshDone != nil {
+		close(old.refreshDone)
+		old.refreshDone = nil
+	}
 	r.mu.Unlock()
 	if old != nil {
 		old.catalog.StopSearchIndex()
@@ -168,6 +193,9 @@ func (r *Registry) RequestRefresh(fingerprint string, callback func(bool)) {
 	}
 	if entry.config.ToolSearch {
 		entry.stale = true
+		if entry.refreshDone == nil {
+			entry.refreshDone = make(chan struct{})
+		}
 	}
 	if entry.refreshing {
 		entry.pending = true
@@ -197,12 +225,14 @@ func (r *Registry) runRefresh(fingerprint string) {
 	entry.callbacks = nil
 	r.mu.Unlock()
 
-	compiled, err := compile(context.Background(), cfg, r.discoverer)
+	compiled, err := compile(r.ctx, cfg, r.discoverer)
 
 	r.mu.Lock()
-	entry = r.entries[fingerprint]
-	if entry == nil {
+	if r.entries[fingerprint] != entry {
 		r.mu.Unlock()
+		for _, callback := range callbacks {
+			callback(err == nil)
+		}
 		return
 	}
 	if err == nil {
@@ -210,13 +240,19 @@ func (r *Registry) runRefresh(fingerprint string) {
 		old := entry.catalog
 		entry.catalog = compiled
 		entry.err = nil
-		entry.stale = false
 		entry.refreshed = time.Now()
 		old.StopSearchIndex()
 	}
 	entry.refreshing = false
 	pending := entry.pending
 	entry.pending = false
+	if entry.config.ToolSearch {
+		entry.stale = pending || err != nil
+		if !pending && entry.refreshDone != nil {
+			close(entry.refreshDone)
+			entry.refreshDone = nil
+		}
+	}
 	if pending && !r.closed {
 		entry.timer = time.AfterFunc(refreshDebounce, func() { r.runRefresh(fingerprint) })
 	}
@@ -236,6 +272,10 @@ func (r *Registry) Close() {
 	r.cancel()
 	for _, entry := range r.entries {
 		entry.catalog.StopSearchIndex()
+		if entry.refreshDone != nil {
+			close(entry.refreshDone)
+			entry.refreshDone = nil
+		}
 		if entry.timer != nil {
 			entry.timer.Stop()
 			entry.timer = nil

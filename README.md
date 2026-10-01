@@ -95,10 +95,11 @@ Two tools are enabled when tool search is enabled:
   excluded or removed tool and `STALE_TOOL_REFERENCE` when the tool changed
 
 Search-enabled catalogs refresh when a component sends a tool-list change
-notification or after one minute on the next request. During a known refresh
-or after its failure, requests return `CATALOG_UNAVAILABLE` until rediscovery
-succeeds. Components that do not send notifications can therefore remain
-unchanged in search results for up to one minute.
+notification or after one minute on the next request. Requests wait for an
+in-progress refresh, subject to their context deadline. If rediscovery fails,
+they return `CATALOG_UNAVAILABLE` instead of using the previous catalog.
+Components that do not send notifications can therefore remain unchanged in
+search results for up to one minute.
 
 Each server accepts an optional `discoveryRevision` string (default empty, not
 interpolated). Set it to a fresh revision to trigger rediscovery when the updated
