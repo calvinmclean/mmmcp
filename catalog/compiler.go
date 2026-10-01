@@ -24,7 +24,7 @@ type discoveryResult struct {
 
 func compile(ctx context.Context, cfg *config.Config, discoverer component.Discoverer) (*Catalog, error) {
 	result := newCompileCatalog()
-	result.reserveSynthetic = cfg.ToolSearch
+	result.toolSearch = cfg.ToolSearch
 	componentIDs := make(map[string]bool, len(cfg.Servers))
 	prefixes := make([]string, len(cfg.Servers))
 	for i, server := range cfg.Servers {
@@ -62,7 +62,7 @@ func compile(ctx context.Context, cfg *config.Config, discoverer component.Disco
 			return nil, err
 		}
 	}
-	compiled, err := newCatalog(result, cfg.ToolSearch)
+	compiled, err := newCatalog(result)
 	if err != nil || !cfg.ToolSearch {
 		return compiled, err
 	}
@@ -174,7 +174,7 @@ func compileTools(c *Catalog, server config.Server, prefix string, discovered []
 		if existing, ok := c.toolRoutes[name]; ok {
 			return collision("tool name", name, existing.Component.Name, server.Name)
 		}
-		if c.reserveSynthetic && toolsearch.IsToolCall(name) {
+		if c.toolSearch && toolsearch.IsToolCall(name) {
 			return fmt.Errorf("tool name %q is reserved; change the component prefix or tool override", name)
 		}
 		clone := *tool

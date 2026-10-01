@@ -3,18 +3,9 @@ package catalog
 import (
 	"context"
 	"encoding/json"
-	"sort"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/obot-platform/mmmcp/toolsearch"
-)
-
-type toolCallKind uint8
-
-const (
-	toolCallDirect toolCallKind = iota + 1
-	toolCallSearch
-	toolCallReference
 )
 
 const (
@@ -32,45 +23,25 @@ type ResolvedToolCall struct {
 	Result    *mcp.CallToolResult
 }
 
-// configureToolCalls selects the names clients can list and call for this catalog.
-// Component routes remain available internally for generic calls in search mode.
-func (c *Catalog) configureToolCalls(toolSearch bool) {
-	if toolSearch {
-		definitions := toolsearch.Definitions()
-		c.toolCalls = make(map[string]toolCallKind, len(definitions))
-		for _, tool := range definitions {
-			c.visibleTools = append(c.visibleTools, tool)
-			switch tool.Name {
-			case toolsearch.SearchToolName:
-				c.toolCalls[tool.Name] = toolCallSearch
-			case toolsearch.CallToolName:
-				c.toolCalls[tool.Name] = toolCallReference
-			}
-		}
-	} else {
-		c.toolCalls = make(map[string]toolCallKind, len(c.tools))
-		c.visibleTools = append(c.visibleTools, c.tools...)
-		for _, tool := range c.tools {
-			c.toolCalls[tool.Name] = toolCallDirect
-		}
-	}
-	sort.Slice(c.visibleTools, func(i, j int) bool { return c.visibleTools[i].Name < c.visibleTools[j].Name })
-}
-
-// ResolveToolCall checks the callable view, then resolves a direct or local tool call.
-// A false ok means the name is not callable in this catalog's configured mode.
+// ResolveToolCall permits direct calls only when search is off and otherwise
+// resolves the two search tools. A false ok means the name is not callable.
 func (c *Catalog) ResolveToolCall(ctx context.Context, name string, arguments json.RawMessage) (ResolvedToolCall, bool, error) {
-	switch c.toolCalls[name] {
-	case toolCallDirect:
-		route := c.toolRoutes[name]
+	if !c.toolSearch {
+		route, ok := c.RouteTool(name)
+		if !ok {
+			return ResolvedToolCall{}, false, nil
+		}
 		return ResolvedToolCall{
 			Route:     &route,
 			Arguments: arguments,
 		}, true, nil
-	case toolCallSearch:
+	}
+
+	switch name {
+	case toolsearch.SearchToolName:
 		result, err := c.SearchTool(ctx, arguments)
 		return ResolvedToolCall{Result: result}, true, err
-	case toolCallReference:
+	case toolsearch.CallToolName:
 		args, err := toolsearch.ParseCallArguments(arguments)
 		if err != nil {
 			return failedToolCall(invalidArgumentsCode, "tool, revision, and arguments are required"), true, nil

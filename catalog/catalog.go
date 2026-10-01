@@ -18,13 +18,12 @@ type Catalog struct {
 	serverInfo        *mcp.Implementation
 	tools             []*mcp.Tool
 	visibleTools      []*mcp.Tool
-	toolCalls         map[string]toolCallKind
+	toolSearch        bool
 	prompts           []*mcp.Prompt
 	resources         []*mcp.Resource
 	resourceTemplates []*mcp.ResourceTemplate
 	toolRoutes        map[string]ToolRoute
 	searchIndex       *toolsearch.Index
-	reserveSynthetic  bool
 	promptRoutes      map[string]PromptRoute
 	resourceRoutes    map[string]ResourceRoute
 	templateRoutes    []ResourceTemplateRoute
@@ -54,7 +53,7 @@ func (c *Catalog) ResourceTemplates() []*mcp.ResourceTemplate {
 
 // RouteTool resolves a callable downstream tool name.
 func (c *Catalog) RouteTool(name string) (ToolRoute, bool) {
-	if c.toolCalls[name] != toolCallDirect {
+	if c.toolSearch {
 		return ToolRoute{}, false
 	}
 	route, ok := c.toolRoutes[name]
@@ -80,11 +79,16 @@ func (c *Catalog) RouteResource(uri string) (ResourceRoute, bool) {
 	return ResourceRoute{}, false
 }
 
-func newCatalog(c *Catalog, toolSearch bool) (*Catalog, error) {
+func newCatalog(c *Catalog) (*Catalog, error) {
 	sort.Slice(c.tools, func(i, j int) bool { return c.tools[i].Name < c.tools[j].Name })
 
-	// Tool visibility depends on the sorted component tools and must be included in the snapshot ID.
-	c.configureToolCalls(toolSearch)
+	// Build the visible tool list after sorting component tools; the list contributes to the snapshot ID.
+	if c.toolSearch {
+		c.visibleTools = toolsearch.Definitions()
+	} else {
+		c.visibleTools = append(c.visibleTools, c.tools...)
+	}
+	sort.Slice(c.visibleTools, func(i, j int) bool { return c.visibleTools[i].Name < c.visibleTools[j].Name })
 
 	sort.Slice(c.prompts, func(i, j int) bool { return c.prompts[i].Name < c.prompts[j].Name })
 	sort.Slice(c.resources, func(i, j int) bool { return c.resources[i].URI < c.resources[j].URI })
@@ -98,7 +102,7 @@ func newCatalog(c *Catalog, toolSearch bool) (*Catalog, error) {
 		Prompts           []*mcp.Prompt           `json:"prompts"`
 		Resources         []*mcp.Resource         `json:"resources"`
 		ResourceTemplates []*mcp.ResourceTemplate `json:"resourceTemplates"`
-	}{toolSearch, c.tools, c.visibleTools, c.prompts, c.resources, c.resourceTemplates})
+	}{c.toolSearch, c.tools, c.visibleTools, c.prompts, c.resources, c.resourceTemplates})
 	if err != nil {
 		return nil, fmt.Errorf("catalog snapshot: %w", err)
 	}
