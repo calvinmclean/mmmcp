@@ -21,8 +21,7 @@ func testIndex() *Index {
 			ExposedName: "billing__lookup",
 			Component:   "billing",
 			Reference: Reference{
-				ComponentID: "billing-id",
-				Name:        "lookup",
+				Name: "billing__lookup",
 			},
 			Revision: "revision",
 			Tool: &mcp.Tool{
@@ -41,7 +40,7 @@ func TestSearchToolPagesAllMatches(t *testing.T) {
 		documents = append(documents, Document{
 			ExposedName: name,
 			Component:   "fixture",
-			Reference:   Reference{ComponentID: "fixture", Name: name},
+			Reference:   Reference{Name: name},
 			Revision:    "revision",
 			Tool:        &mcp.Tool{Name: name, Description: "shared lookup", InputSchema: map[string]any{"type": "object"}},
 		})
@@ -49,7 +48,7 @@ func TestSearchToolPagesAllMatches(t *testing.T) {
 	documents = append(documents, Document{
 		ExposedName: "lookup",
 		Component:   "fixture",
-		Reference:   Reference{ComponentID: "fixture", Name: "lookup"},
+		Reference:   Reference{Name: "lookup"},
 		Revision:    "revision",
 		Tool:        &mcp.Tool{Name: "lookup", Description: "shared lookup", InputSchema: map[string]any{"type": "object"}},
 	})

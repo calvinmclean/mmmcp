@@ -45,7 +45,6 @@ func TestToolSearchAndGenericInvocation(t *testing.T) {
 			cfg := &config.Config{
 				ToolSearch: enabled,
 				Servers: []config.Server{{
-					ID:   "component-1",
 					Name: "billing",
 					URL:  fixture.URL,
 				}},
@@ -119,8 +118,7 @@ func TestToolSearchAndGenericInvocation(t *testing.T) {
 				t.Fatal(err)
 			}
 			if len(results.Tools) != 1 || results.Tools[0].Reference != (toolsearch.Reference{
-				ComponentID: "component-1",
-				Name:        "lookup",
+				Name: "lookup",
 			}) || results.Tools[0].Tool.InputSchema == nil {
 				t.Fatalf("search results: %+v", results)
 			}

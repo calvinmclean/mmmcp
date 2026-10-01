@@ -41,13 +41,8 @@ type ResourceTemplateRoute struct {
 }
 
 func (r ToolRoute) Reference() toolsearch.Reference {
-	id := r.Component.ID
-	if id == "" {
-		id = r.Component.Name
-	}
 	return toolsearch.Reference{
-		ComponentID: id,
-		Name:        r.ExposedName,
+		Name: r.ExposedName,
 	}
 }
 

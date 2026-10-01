@@ -69,11 +69,9 @@ func TestEverythingServerIntegration(t *testing.T) {
 listen: %s
 servers:
   - name: everything-http
-    id: everything-http
     prefix: http
     url: %s
   - name: everything-stdio
-    id: everything-stdio
     prefix: stdio
     command: %s
     args: [%s, %s]
@@ -226,20 +224,23 @@ func verifyDirectToolUnavailable(t *testing.T, session *mcp.ClientSession, name 
 func verifyToolSearch(t *testing.T, session *mcp.ClientSession) {
 	t.Helper()
 	for _, test := range []struct {
-		component string
-		name      string
-		args      map[string]any
-		want      string
+		component   string
+		name        string
+		exposedName string
+		args        map[string]any
+		want        string
 	}{
 		{
-			component: "everything-http",
-			name:      "echo",
-			args:      map[string]any{"message": "searched HTTP"},
-			want:      "Echo: searched HTTP",
+			component:   "everything-http",
+			name:        "echo",
+			exposedName: "http__echo",
+			args:        map[string]any{"message": "searched HTTP"},
+			want:        "Echo: searched HTTP",
 		},
 		{
-			component: "everything-stdio",
-			name:      "get-sum",
+			component:   "everything-stdio",
+			name:        "get-sum",
+			exposedName: "stdio__get-sum",
 			args: map[string]any{
 				"a": 2,
 				"b": 3,
@@ -267,10 +268,7 @@ func verifyToolSearch(t *testing.T, session *mcp.ClientSession) {
 			var hit *toolsearch.Hit
 			for i := range results.Tools {
 				candidate := &results.Tools[i]
-				if candidate.Reference == (toolsearch.Reference{
-					ComponentID: test.component,
-					Name:        test.name,
-				}) {
+				if candidate.Reference == (toolsearch.Reference{Name: test.exposedName}) {
 					hit = candidate
 					break
 				}

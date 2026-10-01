@@ -15,8 +15,6 @@ type Config struct {
 
 // Server describes one component MCP server.
 type Server struct {
-	// ID is the stable component identity used by generic invocation.
-	ID string
 	// DiscoveryRevision participates in the complete configuration fingerprint only.
 	DiscoveryRevision  string
 	Name               string
@@ -86,7 +84,6 @@ type configDTO struct {
 }
 
 type serverDTO struct {
-	ID                 string                        `yaml:"id"`
 	DiscoveryRevision  string                        `yaml:"discoveryRevision"`
 	Name               string                        `yaml:"name"`
 	Prefix             string                        `yaml:"prefix"`

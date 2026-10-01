@@ -23,7 +23,6 @@ listen: 127.0.0.1:8080
 idleTimeout: 30s
 servers:
   - name: github
-    id: github-component
     prefix: gh
     url: https://example.invalid/mcp
     headers:

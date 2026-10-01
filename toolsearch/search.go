@@ -38,10 +38,9 @@ var (
 	separators    = strings.NewReplacer("_", " ", "-", " ", "/", " ", ".", " ")
 )
 
-// Reference identifies a tool by its component ID and exposed tool name.
+// Reference identifies a tool by its unique exposed name.
 type Reference struct {
-	ComponentID string `json:"componentID"`
-	Name        string `json:"name"`
+	Name string `json:"name"`
 }
 
 // Document contains the effective tool definition and identity to index.
@@ -101,7 +100,7 @@ func ParseCallArguments(arguments any) (CallArguments, error) {
 		return CallArguments{}, errors.New("tool, revision, and arguments are required")
 	}
 
-	if err := json.Unmarshal(data, &args); err != nil || args.Tool.ComponentID == "" || args.Tool.Name == "" || args.Revision == "" {
+	if err := json.Unmarshal(data, &args); err != nil || args.Tool.Name == "" || args.Revision == "" {
 		return CallArguments{}, errors.New("tool, revision, and arguments are required")
 	}
 
@@ -148,14 +147,11 @@ func Definitions() []*mcp.Tool {
 					"tool": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
-							"componentID": map[string]any{
-								"type": "string",
-							},
 							"name": map[string]any{
 								"type": "string",
 							},
 						},
-						"required": []string{"componentID", "name"},
+						"required": []string{"name"},
 					},
 					"revision": map[string]any{
 						"type": "string",
@@ -568,9 +564,9 @@ func toolError(message string) *mcp.CallToolResult {
 	}
 }
 
-// Revision hashes the stable reference, discovery revision, and exposed tool definition.
-func Revision(ref Reference, discoveryRevision string, tool *mcp.Tool) string {
-	data, _ := json.Marshal([]any{ref, discoveryRevision, tool})
+// Revision hashes the reference, component name, discovery revision, and exposed tool definition.
+func Revision(ref Reference, componentName, discoveryRevision string, tool *mcp.Tool) string {
+	data, _ := json.Marshal([]any{ref, componentName, discoveryRevision, tool})
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:16])
 }

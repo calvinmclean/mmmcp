@@ -3,6 +3,7 @@ package catalog_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -16,7 +17,7 @@ type searchDiscoverer struct{}
 type collisionDiscoverer struct{}
 
 func (searchDiscoverer) Discover(_ context.Context, server config.Server) (*component.Features, error) {
-	if server.ID == "two" {
+	if server.Name == "archive" {
 		return &component.Features{
 			Tools: []*mcp.Tool{{
 				Name:        "lookup",
@@ -54,7 +55,6 @@ func TestSearchUsesOnlyCompiledToolsAndStableReferences(t *testing.T) {
 		ToolSearch: true,
 		Servers: []config.Server{
 			{
-				ID:   "one",
 				Name: "current",
 				URL:  "https://example.invalid",
 				Tools: []config.ToolOverride{{
@@ -63,7 +63,6 @@ func TestSearchUsesOnlyCompiledToolsAndStableReferences(t *testing.T) {
 				}},
 			},
 			{
-				ID:   "two",
 				Name: "archive",
 				URL:  "https://example.invalid",
 			},
@@ -79,8 +78,7 @@ func TestSearchUsesOnlyCompiledToolsAndStableReferences(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(results.Tools) == 0 || results.Tools[0].Reference != (toolsearch.Reference{
-		ComponentID: "one",
-		Name:        "current__lookup",
+		Name: "current__lookup",
 	}) {
 		t.Fatalf("search results: %+v", results)
 	}
@@ -97,12 +95,82 @@ func TestSearchUsesOnlyCompiledToolsAndStableReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(other.Tools) == 0 || other.Tools[0].Reference.ComponentID != "two" {
+	if len(other.Tools) == 0 || other.Tools[0].Reference.Name != "archive__lookup" {
 		t.Fatalf("duplicate-name routing: %+v", other)
 	}
 	_, _, revision, ok := compiled.RouteReference(other.Tools[0].Reference)
 	if !ok || revision != other.Tools[0].Revision {
 		t.Fatalf("reference did not route to discovered tool")
+	}
+}
+
+func TestSearchRevisionChangesWhenComponentNameChanges(t *testing.T) {
+	features := &component.Features{
+		Tools: []*mcp.Tool{
+			{
+				Name: "lookup",
+				InputSchema: map[string]any{
+					"type": "object",
+				},
+			},
+		},
+	}
+	discoverer := featureDiscoverer{features: map[string]*component.Features{
+		"first":  features,
+		"second": features,
+	}}
+	compile := func(name string) *catalog.Catalog {
+		t.Helper()
+		compiled, err := catalog.Compile(t.Context(), &config.Config{
+			ToolSearch: true,
+			Servers: []config.Server{
+				{
+					Name:   name,
+					Prefix: "stable",
+					URL:    "https://example.invalid",
+				},
+			},
+		}, discoverer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return compiled
+	}
+
+	first := compile("first")
+	second := compile("second")
+	firstResults, err := first.Search(t.Context(), "lookup", 1)
+	if err != nil || len(firstResults.Tools) != 1 {
+		t.Fatalf("first search: %+v, %v", firstResults, err)
+	}
+	secondResults, err := second.Search(t.Context(), "lookup", 1)
+	if err != nil || len(secondResults.Tools) != 1 {
+		t.Fatalf("second search: %+v, %v", secondResults, err)
+	}
+	old := firstResults.Tools[0]
+	current := secondResults.Tools[0]
+	if old.Reference != current.Reference {
+		t.Fatalf("exposed tool reference changed: %v, %v", old.Reference, current.Reference)
+	}
+	if old.Revision == current.Revision {
+		t.Fatal("component change did not invalidate tool revision")
+	}
+
+	args, err := json.Marshal(toolsearch.CallArguments{
+		Tool:      old.Reference,
+		Revision:  old.Revision,
+		Arguments: json.RawMessage(`{}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call, ok, err := second.ResolveToolCall(t.Context(), toolsearch.CallToolName, args)
+	if err != nil || !ok || call.Result == nil || !call.Result.IsError {
+		t.Fatalf("old reference was accepted: %+v, %v, %v", call, ok, err)
+	}
+	content, ok := call.Result.Content[0].(*mcp.TextContent)
+	if !ok || !strings.Contains(content.Text, "STALE_TOOL_REFERENCE") {
+		t.Fatalf("old reference returned wrong result: %+v", call.Result)
 	}
 }
 
@@ -201,8 +269,7 @@ func TestSearchUsesEffectiveOverrides(t *testing.T) {
 	}
 
 	if _, _, _, ok := compiled.RouteReference(toolsearch.Reference{
-		ComponentID: "billing",
-		Name:        "excludedtoken",
+		Name: "excludedtoken",
 	}); ok {
 		t.Fatal("excluded tool retained an internal route")
 	}
@@ -212,8 +279,7 @@ func TestSearchUsesEffectiveOverrides(t *testing.T) {
 
 	args, err := json.Marshal(map[string]any{
 		"tool": toolsearch.Reference{
-			ComponentID: "billing",
-			Name:        "billing__modernname",
+			Name: "billing__modernname",
 		},
 		"revision": "bad",
 	})

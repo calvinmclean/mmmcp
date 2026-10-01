@@ -17,7 +17,7 @@ func (c *Catalog) searchDocuments() []toolsearch.Document {
 			ExposedName: tool.Name,
 			Component:   route.Component.Name,
 			Reference:   ref,
-			Revision:    toolsearch.Revision(ref, route.Component.DiscoveryRevision, tool),
+			Revision:    toolsearch.Revision(ref, route.Component.Name, route.Component.DiscoveryRevision, tool),
 			Tool:        tool,
 		})
 	}
@@ -66,7 +66,7 @@ func (c *Catalog) RouteReference(ref toolsearch.Reference) (ToolRoute, *mcp.Tool
 	for _, tool := range c.tools {
 		route := c.toolRoutes[tool.Name]
 		if route.Reference() == ref {
-			return route, tool, toolsearch.Revision(ref, route.Component.DiscoveryRevision, tool), true
+			return route, tool, toolsearch.Revision(ref, route.Component.Name, route.Component.DiscoveryRevision, tool), true
 		}
 	}
 	return ToolRoute{}, nil, "", false

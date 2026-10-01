@@ -284,7 +284,7 @@ func TestCompileMultipleServersAddsPrefixes(t *testing.T) {
 	}
 }
 
-func TestCompileDuplicateComponentIDsUseExposedToolNames(t *testing.T) {
+func TestCompileDuplicateComponentNamesUseExposedToolNames(t *testing.T) {
 	discoverer := featureDiscoverer{features: map[string]*component.Features{
 		"shared": {
 			Tools: []*mcp.Tool{
@@ -322,7 +322,7 @@ func TestCompileDuplicateComponentIDsUseExposedToolNames(t *testing.T) {
 
 	compiled, err := catalog.Compile(t.Context(), cfg, discoverer)
 	if err != nil {
-		t.Fatalf("direct mode should allow duplicate component IDs: %v", err)
+		t.Fatalf("direct mode should allow duplicate component names with distinct prefixes: %v", err)
 	}
 	for exposedName, prefix := range map[string]string{
 		"first__lookup": "first",
@@ -368,10 +368,7 @@ func TestCompileDuplicateComponentIDsUseExposedToolNames(t *testing.T) {
 		"first__lookup": "https://first.invalid",
 		"second__find":  "https://second.invalid",
 	} {
-		ref := toolsearch.Reference{
-			ComponentID: "shared",
-			Name:        exposedName,
-		}
+		ref := toolsearch.Reference{Name: exposedName}
 		route, _, _, ok := compiled.RouteReference(ref)
 		if !ok || route.Component.URL != url || route.Tool.Name != "lookup" {
 			t.Fatalf("reference route for %q = %+v, %v", exposedName, route, ok)
