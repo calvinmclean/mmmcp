@@ -19,6 +19,11 @@ import (
 	"github.com/obot-platform/mmmcp/testserver"
 )
 
+type probeDiscoverer struct {
+	mu  sync.Mutex
+	err error
+}
+
 func TestHealthAndReadinessEndpoints(t *testing.T) {
 	composite := newProbeComposite(t)
 
@@ -115,11 +120,6 @@ func TestReadinessRecoversAfterAutomaticCatalogRetry(t *testing.T) {
 	if recorder.Code != http.StatusOK || response.Status != "ok" || response.Checks["catalog"].Status != "ok" {
 		t.Fatalf("recovered readiness = %d, %+v", recorder.Code, response)
 	}
-}
-
-type probeDiscoverer struct {
-	mu  sync.Mutex
-	err error
 }
 
 func (d *probeDiscoverer) Discover(context.Context, config.Server) (*component.Features, error) {
