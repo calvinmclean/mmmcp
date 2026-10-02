@@ -73,7 +73,7 @@ type CallArguments struct {
 	Arguments json.RawMessage `json:"arguments"`
 }
 
-// Index owns one immutable snapshot's index and one optional background builder.
+// Index owns one immutable snapshot's index and its background builder.
 type Index struct {
 	documents   map[string]Document
 	mu          sync.RWMutex
@@ -191,22 +191,6 @@ func New(documents []Document) *Index {
 	})
 
 	return state
-}
-
-// Build builds once synchronously for direct catalog.Compile callers.
-func (i *Index) Build(ctx context.Context) error {
-	var buildErr error
-
-	i.once.Do(func() {
-		defer close(i.stopped)
-		var index bleve.Index
-		index, buildErr = i.build(ctx, i.documents)
-		if buildErr == nil {
-			i.publish(index)
-		}
-	})
-
-	return buildErr
 }
 
 // Start builds in the background and retries failed attempts until stopped.

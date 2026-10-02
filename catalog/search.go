@@ -24,13 +24,6 @@ func (c *Catalog) searchDocuments() []toolsearch.Document {
 	return documents
 }
 
-func (c *Catalog) BuildSearchIndex(ctx context.Context) error {
-	if c.searchIndex == nil {
-		return nil
-	}
-	return c.searchIndex.Build(ctx)
-}
-
 func (c *Catalog) StartSearchIndex(ctx context.Context) {
 	if c != nil && c.searchIndex != nil {
 		c.searchIndex.Start(ctx)

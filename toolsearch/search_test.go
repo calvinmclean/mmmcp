@@ -53,9 +53,8 @@ func TestSearchToolPagesAllMatches(t *testing.T) {
 		Tool:        &mcp.Tool{Name: "lookup", Description: "shared lookup", InputSchema: map[string]any{"type": "object"}},
 	})
 	index := New(documents)
-	if err := index.Build(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+	index.Start(t.Context())
+	defer index.Stop()
 
 	seen := map[string]bool{}
 	for offset := 0; ; offset += 10 {
