@@ -3,8 +3,6 @@ package toolsearch
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -546,11 +544,4 @@ func toolError(message string) *mcp.CallToolResult {
 			&mcp.TextContent{Text: message},
 		},
 	}
-}
-
-// Revision hashes the reference, component name, discovery revision, and exposed tool definition.
-func Revision(ref Reference, componentName, discoveryRevision string, tool *mcp.Tool) string {
-	data, _ := json.Marshal([]any{ref, componentName, discoveryRevision, tool})
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:16])
 }

@@ -174,6 +174,87 @@ func TestSearchRevisionChangesWhenComponentNameChanges(t *testing.T) {
 	}
 }
 
+func TestSearchRevisionChangesWhenRouteChanges(t *testing.T) {
+	base := config.Server{
+		Name:    "current",
+		URL:     "https://first.invalid",
+		Headers: map[string]string{"Authorization": "Bearer first"},
+	}
+	compile := func(server config.Server) *catalog.Catalog {
+		t.Helper()
+		compiled, err := catalog.Compile(t.Context(), &config.Config{
+			ToolSearch: true,
+			Servers:    []config.Server{server},
+		}, searchDiscoverer{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return compiled
+	}
+	search := func(compiled *catalog.Catalog) toolsearch.Hit {
+		t.Helper()
+		results, err := compiled.Search(t.Context(), "lookup", 1)
+		if err != nil || len(results.Tools) != 1 {
+			t.Fatalf("search: %+v, %v", results, err)
+		}
+		return results.Tools[0]
+	}
+
+	old := search(compile(base))
+	for _, tc := range []struct {
+		name   string
+		server config.Server
+	}{
+		{
+			name: "URL",
+			server: config.Server{
+				Name:    base.Name,
+				URL:     "https://second.invalid",
+				Headers: base.Headers,
+			},
+		},
+		{
+			name: "credentials",
+			server: config.Server{
+				Name:    base.Name,
+				URL:     base.URL,
+				Headers: map[string]string{"Authorization": "Bearer second"},
+			},
+		},
+		{
+			name: "command",
+			server: config.Server{
+				Name:    base.Name,
+				Command: "different-server",
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			currentCatalog := compile(tc.server)
+			current := search(currentCatalog)
+			if current.Reference != old.Reference {
+				t.Fatalf("reference changed: %v != %v", current.Reference, old.Reference)
+			}
+			if current.Revision == old.Revision {
+				t.Fatal("route change did not invalidate tool revision")
+			}
+
+			args, err := json.Marshal(toolsearch.CallArguments{Tool: old.Reference, Revision: old.Revision})
+			if err != nil {
+				t.Fatal(err)
+			}
+			call, ok, err := currentCatalog.ResolveToolCall(t.Context(), toolsearch.CallToolName, args)
+			if err != nil || !ok || call.Result == nil || !call.Result.IsError {
+				t.Fatalf("old route reference was accepted: %+v, %v, %v", call, ok, err)
+			}
+			content := call.Result.Content[0].(*mcp.TextContent)
+			if !strings.Contains(content.Text, "STALE_TOOL_REFERENCE") {
+				t.Fatalf("old route reference returned wrong result: %q", content.Text)
+			}
+		})
+	}
+}
+
 func TestSearchReservedToolCollision(t *testing.T) {
 	cfg := &config.Config{
 		ToolSearch: true,
