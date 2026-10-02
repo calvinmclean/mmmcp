@@ -383,13 +383,8 @@ func buildIndex(ctx context.Context, documents map[string]Document) (bleve.Index
 	return index, nil
 }
 
-// Search returns the first page of ranked matches from this snapshot.
-func (i *Index) Search(ctx context.Context, text string, limit int) (Results, error) {
-	return i.SearchPage(ctx, text, limit, 0)
-}
-
-// SearchPage waits for a ready index and returns ranked matches after offset.
-func (i *Index) SearchPage(ctx context.Context, text string, limit, offset int) (Results, error) {
+// Search waits for a ready index and returns ranked matches after offset.
+func (i *Index) Search(ctx context.Context, text string, limit, offset int) (Results, error) {
 	if strings.TrimSpace(text) == "" || limit < 1 || offset < 0 {
 		return Results{}, fmt.Errorf("query must be nonempty, limit must be positive, and offset must be nonnegative")
 	}
@@ -516,7 +511,7 @@ func (i *Index) Call(ctx context.Context, arguments any) (*mcp.CallToolResult, e
 		return toolError("INVALID_ARGUMENTS: query must be nonempty, limit must be positive, and offset must be nonnegative"), nil
 	}
 
-	results, err := i.SearchPage(ctx, params.Query, params.Limit, params.Offset)
+	results, err := i.Search(ctx, params.Query, params.Limit, params.Offset)
 	if errors.Is(err, ErrNotReady) {
 		return toolError("SEARCH_INDEX_NOT_READY: Tool search is still indexing; retry shortly."), nil
 	}

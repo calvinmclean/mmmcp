@@ -27,30 +27,22 @@ func (c *Catalog) searchDocuments() []toolsearch.Document {
 	return documents
 }
 
+// StartSearchIndex starts background indexing when tool search is enabled.
+// The context controls the builder and its retries after this method returns.
 func (c *Catalog) StartSearchIndex(ctx context.Context) {
 	if c != nil && c.searchIndex != nil {
 		c.searchIndex.Start(ctx)
 	}
 }
 
+// StopSearchIndex cancels a pending background build. A completed index remains usable.
 func (c *Catalog) StopSearchIndex() {
 	if c != nil && c.searchIndex != nil {
 		c.searchIndex.Stop()
 	}
 }
 
-func (c *Catalog) Search(ctx context.Context, text string, limit int) (toolsearch.Results, error) {
-	return c.SearchPage(ctx, text, limit, 0)
-}
-
-// SearchPage returns ranked tool matches after offset.
-func (c *Catalog) SearchPage(ctx context.Context, text string, limit, offset int) (toolsearch.Results, error) {
-	if c.searchIndex == nil {
-		return toolsearch.Results{}, fmt.Errorf("tool search is disabled")
-	}
-	return c.searchIndex.SearchPage(ctx, text, limit, offset)
-}
-
+// SearchTool handles a search tool call and formats its result for MCP clients.
 func (c *Catalog) SearchTool(ctx context.Context, arguments any) (*mcp.CallToolResult, error) {
 	if c.searchIndex == nil {
 		return nil, fmt.Errorf("tool search is disabled")
@@ -58,6 +50,8 @@ func (c *Catalog) SearchTool(ctx context.Context, arguments any) (*mcp.CallToolR
 	return c.searchIndex.Call(ctx, arguments)
 }
 
+// RouteReference returns the current route and revision for an exposed tool reference.
+// It reports false when the tool is absent from this catalog.
 func (c *Catalog) RouteReference(ref toolsearch.Reference) (ToolRoute, string, bool) {
 	for _, tool := range c.tools {
 		route := c.toolRoutes[tool.Name]

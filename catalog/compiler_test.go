@@ -340,7 +340,7 @@ func TestCompileDuplicateComponentNamesUseExposedToolNames(t *testing.T) {
 		t.Fatalf("search mode should allow distinct exposed tool names: %v", err)
 	}
 
-	hits, err := compiled.Search(t.Context(), "invoices", 5)
+	hits, err := searchCatalog(t.Context(), compiled, "invoices", 5, 0)
 	if err != nil || len(hits.Tools) != 2 {
 		t.Fatalf("search results = %+v, %v", hits, err)
 	}

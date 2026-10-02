@@ -172,7 +172,7 @@ func TestAsyncIndexWaitTimeoutAndConcurrentSearch(t *testing.T) {
 	var workers sync.WaitGroup
 	for range 8 {
 		workers.Go(func() {
-			found, err := index.Search(t.Context(), "invoices", 5)
+			found, err := index.Search(t.Context(), "invoices", 5, 0)
 			if err != nil || len(found.Tools) != 1 {
 				t.Errorf("search after build = %+v, %v", found, err)
 			}
@@ -202,7 +202,7 @@ func TestAsyncIndexRetriesFailedBuild(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
-	found, err := index.Search(ctx, "invoices", 5)
+	found, err := index.Search(ctx, "invoices", 5, 0)
 	if err != nil || len(found.Tools) != 1 || attempts.Load() != 2 {
 		t.Fatalf("search after retry = %+v, attempts = %d, err = %v", found, attempts.Load(), err)
 	}
@@ -228,7 +228,7 @@ func TestAsyncIndexStopsPendingBuild(t *testing.T) {
 		t.Fatal("index builder did not stop")
 	}
 
-	if _, err := index.Search(t.Context(), "invoices", 5); !errors.Is(err, ErrNotReady) {
+	if _, err := index.Search(t.Context(), "invoices", 5, 0); !errors.Is(err, ErrNotReady) {
 		t.Fatalf("stopped search error = %v", err)
 	}
 }

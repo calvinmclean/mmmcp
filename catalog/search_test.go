@@ -3,6 +3,7 @@ package catalog_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -15,6 +16,25 @@ import (
 
 type searchDiscoverer struct{}
 type collisionDiscoverer struct{}
+
+func searchCatalog(ctx context.Context, compiled *catalog.Catalog, query string, limit, offset int) (toolsearch.Results, error) {
+	result, err := compiled.SearchTool(ctx, map[string]any{
+		"query":  query,
+		"limit":  limit,
+		"offset": offset,
+	})
+	if err != nil {
+		return toolsearch.Results{}, err
+	}
+	if result.IsError {
+		return toolsearch.Results{}, fmt.Errorf("search tool returned an error: %+v", result.Content)
+	}
+	results, ok := result.StructuredContent.(toolsearch.Results)
+	if !ok {
+		return toolsearch.Results{}, fmt.Errorf("unexpected search result: %T", result.StructuredContent)
+	}
+	return results, nil
+}
 
 func (searchDiscoverer) Discover(_ context.Context, server config.Server) (*component.Features, error) {
 	if server.Name == "archive" {
@@ -73,7 +93,7 @@ func TestSearchUsesOnlyCompiledToolsAndStableReferences(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	results, err := compiled.Search(t.Context(), "invoiceNumber billing reference", 5)
+	results, err := searchCatalog(t.Context(), compiled, "invoiceNumber billing reference", 5, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +111,7 @@ func TestSearchUsesOnlyCompiledToolsAndStableReferences(t *testing.T) {
 		}
 	}
 
-	other, err := compiled.Search(t.Context(), "archived invoices", 5)
+	other, err := searchCatalog(t.Context(), compiled, "archived invoices", 5, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,11 +159,11 @@ func TestSearchRevisionChangesWhenComponentNameChanges(t *testing.T) {
 
 	first := compile("first")
 	second := compile("second")
-	firstResults, err := first.Search(t.Context(), "lookup", 1)
+	firstResults, err := searchCatalog(t.Context(), first, "lookup", 1, 0)
 	if err != nil || len(firstResults.Tools) != 1 {
 		t.Fatalf("first search: %+v, %v", firstResults, err)
 	}
-	secondResults, err := second.Search(t.Context(), "lookup", 1)
+	secondResults, err := searchCatalog(t.Context(), second, "lookup", 1, 0)
 	if err != nil || len(secondResults.Tools) != 1 {
 		t.Fatalf("second search: %+v, %v", secondResults, err)
 	}
@@ -193,7 +213,7 @@ func TestSearchRevisionChangesWhenRouteChanges(t *testing.T) {
 	}
 	search := func(compiled *catalog.Catalog) toolsearch.Hit {
 		t.Helper()
-		results, err := compiled.Search(t.Context(), "lookup", 1)
+		results, err := searchCatalog(t.Context(), compiled, "lookup", 1, 0)
 		if err != nil || len(results.Tools) != 1 {
 			t.Fatalf("search: %+v, %v", results, err)
 		}
@@ -332,7 +352,7 @@ func TestSearchUsesEffectiveOverrides(t *testing.T) {
 	}
 
 	for _, query := range []string{"modernname", "configuredphrase", "account"} {
-		results, err := compiled.Search(t.Context(), query, 5)
+		results, err := searchCatalog(t.Context(), compiled, query, 5, 0)
 		if err != nil || len(results.Tools) != 1 {
 			t.Fatalf("search %q: %+v, %v", query, results, err)
 		}
@@ -343,7 +363,7 @@ func TestSearchUsesEffectiveOverrides(t *testing.T) {
 	}
 
 	for _, query := range []string{"legacytoken", "originalphrase", "excludedtoken", "excludedphrase"} {
-		results, err := compiled.Search(t.Context(), query, 5)
+		results, err := searchCatalog(t.Context(), compiled, query, 5, 0)
 		if err != nil || len(results.Tools) != 0 {
 			t.Fatalf("search %q unexpectedly found tools: %+v, %v", query, results, err)
 		}
@@ -377,7 +397,7 @@ func TestSearchUsesEffectiveOverrides(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	results, err := disabled.Search(t.Context(), "modernname", 5)
+	results, err := searchCatalog(t.Context(), disabled, "modernname", 5, 0)
 	if err != nil || len(results.Tools) != 0 {
 		t.Fatalf("disableTools left searchable tools: %+v, %v", results, err)
 	}
