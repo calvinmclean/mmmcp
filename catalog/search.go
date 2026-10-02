@@ -58,14 +58,14 @@ func (c *Catalog) SearchTool(ctx context.Context, arguments any) (*mcp.CallToolR
 	return c.searchIndex.Call(ctx, arguments)
 }
 
-func (c *Catalog) RouteReference(ref toolsearch.Reference) (ToolRoute, *mcp.Tool, string, bool) {
+func (c *Catalog) RouteReference(ref toolsearch.Reference) (ToolRoute, string, bool) {
 	for _, tool := range c.tools {
 		route := c.toolRoutes[tool.Name]
 		if route.Reference() == ref {
-			return route, tool, toolRevision(route, tool), true
+			return route, toolRevision(route, tool), true
 		}
 	}
-	return ToolRoute{}, nil, "", false
+	return ToolRoute{}, "", false
 }
 
 func toolRevision(route ToolRoute, tool *mcp.Tool) string {

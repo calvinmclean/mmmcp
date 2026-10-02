@@ -369,7 +369,7 @@ func TestCompileDuplicateComponentNamesUseExposedToolNames(t *testing.T) {
 		"second__find":  "https://second.invalid",
 	} {
 		ref := toolsearch.Reference{Name: exposedName}
-		route, _, _, ok := compiled.RouteReference(ref)
+		route, _, ok := compiled.RouteReference(ref)
 		if !ok || route.Component.URL != url || route.Tool.Name != "lookup" {
 			t.Fatalf("reference route for %q = %+v, %v", exposedName, route, ok)
 		}

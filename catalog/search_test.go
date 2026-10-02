@@ -98,7 +98,7 @@ func TestSearchUsesOnlyCompiledToolsAndStableReferences(t *testing.T) {
 	if len(other.Tools) == 0 || other.Tools[0].Reference.Name != "archive__lookup" {
 		t.Fatalf("duplicate-name routing: %+v", other)
 	}
-	_, _, revision, ok := compiled.RouteReference(other.Tools[0].Reference)
+	_, revision, ok := compiled.RouteReference(other.Tools[0].Reference)
 	if !ok || revision != other.Tools[0].Revision {
 		t.Fatalf("reference did not route to discovered tool")
 	}
@@ -349,7 +349,7 @@ func TestSearchUsesEffectiveOverrides(t *testing.T) {
 		}
 	}
 
-	if _, _, _, ok := compiled.RouteReference(toolsearch.Reference{
+	if _, _, ok := compiled.RouteReference(toolsearch.Reference{
 		Name: "excludedtoken",
 	}); ok {
 		t.Fatal("excluded tool retained an internal route")

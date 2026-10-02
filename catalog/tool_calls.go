@@ -47,7 +47,7 @@ func (c *Catalog) ResolveToolCall(ctx context.Context, name string, arguments js
 			return failedToolCall(invalidArgumentsCode, "tool, revision, and arguments are required"), true, nil
 		}
 
-		route, _, revision, ok := c.RouteReference(args.Tool)
+		route, revision, ok := c.RouteReference(args.Tool)
 		if !ok {
 			return failedToolCall(toolUnavailableCode, "tool is unavailable"), true, nil
 		}
