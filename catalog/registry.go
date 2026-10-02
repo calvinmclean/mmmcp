@@ -125,19 +125,20 @@ func (r *Registry) Get(ctx context.Context, cfg *config.Config) (*Catalog, strin
 	r.entries[fingerprint] = entry
 	r.mu.Unlock()
 
-	entry.catalog, entry.err = compile(ctx, cfg, r.discoverer)
-	if entry.err == nil {
-		entry.catalog.StartSearchIndex(r.ctx)
-	}
+	compiled, compileErr := compile(ctx, cfg, r.discoverer)
 	r.mu.Lock()
-	if entry.err != nil {
+	entry.catalog, entry.err = compiled, compileErr
+	if compileErr != nil {
 		delete(r.entries, fingerprint)
 	} else {
 		entry.refreshed = time.Now()
+		if !r.closed {
+			compiled.StartSearchIndex(r.ctx)
+		}
 	}
 	close(entry.ready)
 	r.mu.Unlock()
-	return entry.catalog, fingerprint, entry.err
+	return compiled, fingerprint, compileErr
 }
 
 // Refresh recompiles cfg and replaces its cached catalog only after success.

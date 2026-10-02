@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/obot-platform/mmmcp/catalog"
@@ -106,6 +107,46 @@ func TestRegistryDeduplicatesConcurrentCompilation(t *testing.T) {
 	}
 	if got := discoverer.Count(); got != 1 {
 		t.Fatalf("discoveries = %d, want 1", got)
+	}
+}
+
+func TestRegistryCloseDuringInitialCompilation(t *testing.T) {
+	const attempts = 32
+	for range attempts {
+		discoverer := &countingDiscoverer{started: make(chan struct{}), release: make(chan struct{})}
+		registry := catalog.NewRegistry(discoverer)
+		cfg := &config.Config{
+			ToolSearch: true,
+			Servers:    []config.Server{{Name: "fixture", URL: "https://example.invalid"}},
+		}
+
+		getDone := make(chan error, 1)
+		go func() {
+			_, _, err := registry.Get(t.Context(), cfg)
+			getDone <- err
+		}()
+		<-discoverer.started
+
+		closeDone := make(chan struct{})
+		go func() {
+			registry.Close()
+			close(closeDone)
+		}()
+		close(discoverer.release)
+
+		select {
+		case err := <-getDone:
+			if err != nil {
+				t.Fatalf("initial compilation after Close: %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("initial compilation did not finish")
+		}
+		select {
+		case <-closeDone:
+		case <-time.After(time.Second):
+			t.Fatal("Close did not finish")
+		}
 	}
 }
 
