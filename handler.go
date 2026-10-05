@@ -50,7 +50,7 @@ func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
 				if req.Params == nil {
 					req.Params = &mcp.ListToolsParams{}
 				}
-				values, nextCursor, err := compiled.PageVisibleTools(req.Params.Cursor, c.pageSize)
+				values, nextCursor, err := compiled.PageTools(req.Params.Cursor, c.pageSize)
 				if err != nil {
 					return nil, err
 				}

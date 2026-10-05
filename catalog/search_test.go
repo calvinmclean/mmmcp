@@ -482,7 +482,7 @@ func TestVisibleToolCursorChangesWithToolSearch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, cursor, err := off.PageVisibleTools("", 1)
+	_, cursor, err := off.PageTools("", 1)
 	if err != nil || cursor == "" {
 		t.Fatalf("expected off-mode cursor: %q, %v", cursor, err)
 	}
@@ -493,7 +493,7 @@ func TestVisibleToolCursorChangesWithToolSearch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, _, err := search.PageVisibleTools(cursor, 1); err == nil {
+	if _, _, err := search.PageTools(cursor, 1); err == nil {
 		t.Fatal("cursor from direct mode was accepted in search mode")
 	}
 }
