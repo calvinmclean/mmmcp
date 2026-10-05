@@ -3,16 +3,14 @@ package catalog
 import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/obot-platform/mmmcp/config"
-	"github.com/obot-platform/mmmcp/toolsearch"
 	"github.com/yosida95/uritemplate/v3"
 )
 
 // ToolRoute maps an exposed tool identity back to its component identity.
 type ToolRoute struct {
-	Component   config.Server
-	Prefix      string
-	Tool        *mcp.Tool
-	ExposedName string
+	Component config.Server
+	Prefix    string
+	Tool      *mcp.Tool
 }
 
 // PromptRoute maps an exposed prompt identity back to its component identity.
@@ -38,12 +36,6 @@ type ResourceTemplateRoute struct {
 	CompositeTemplate string
 	exposed           *uritemplate.Template
 	original          *uritemplate.Template
-}
-
-func (r ToolRoute) Reference() toolsearch.Reference {
-	return toolsearch.Reference{
-		Name: r.ExposedName,
-	}
 }
 
 func (r ResourceTemplateRoute) toOriginal(uri string) (string, bool) {

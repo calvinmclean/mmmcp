@@ -12,7 +12,7 @@ func (c *Catalog) searchDocuments() []toolsearch.Document {
 	documents := make([]toolsearch.Document, 0, len(c.tools))
 	for _, tool := range c.tools {
 		route := c.toolRoutes[tool.Name]
-		ref := route.Reference()
+		ref := toolsearch.Reference{Name: tool.Name}
 		documents = append(documents, toolsearch.Document{
 			ExposedName: tool.Name,
 			Component:   route.Component.Name,
@@ -60,8 +60,8 @@ func (c *Catalog) RouteReference(ref toolsearch.Reference) (ToolRoute, string, b
 	}
 	// Direct-mode catalogs have no search index and do not make generic calls.
 	for _, tool := range c.tools {
-		route := c.toolRoutes[tool.Name]
-		if route.Reference() == ref {
+		if tool.Name == ref.Name {
+			route := c.toolRoutes[tool.Name]
 			return route, toolsearch.Revision(ref, route.Component.Name, route.Tool.Name, tool), true
 		}
 	}

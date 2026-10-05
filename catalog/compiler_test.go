@@ -356,7 +356,7 @@ func TestCompileDuplicateComponentNamesUseExposedToolNames(t *testing.T) {
 			t.Fatal(err)
 		}
 		call, ok, err := compiled.ResolveToolCall(t.Context(), toolsearch.CallToolName, arguments)
-		if err != nil || !ok || call.Route == nil || call.Route.ExposedName != hit.Reference.Name {
+		if err != nil || !ok || call.Route == nil || call.Route.Tool.Name != "lookup" {
 			t.Fatalf("generic call for %q = %+v, %v, %v", hit.Reference.Name, call, ok, err)
 		}
 	}

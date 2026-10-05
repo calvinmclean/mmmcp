@@ -174,7 +174,7 @@ func compileTools(c *Catalog, server config.Server, prefix string, discovered []
 			clone.Description = override.OverrideDescription
 		}
 		c.tools = append(c.tools, &clone)
-		c.toolRoutes[name] = ToolRoute{Component: server, Prefix: prefix, Tool: tool, ExposedName: name}
+		c.toolRoutes[name] = ToolRoute{Component: server, Prefix: prefix, Tool: tool}
 	}
 	return nil
 }
