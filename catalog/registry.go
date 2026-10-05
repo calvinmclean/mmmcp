@@ -44,7 +44,6 @@ type registryEntry struct {
 	callbacks   []func(bool)
 	stale       bool
 	refreshDone chan struct{}
-	refreshed   time.Time
 }
 
 // NewRegistry creates a catalog registry.
@@ -90,9 +89,6 @@ func (r *Registry) Get(ctx context.Context, cfg *config.Config) (*Catalog, strin
 				r.mu.Unlock()
 				return catalog, fingerprint, entryErr
 			}
-			if cfg.ToolSearch && time.Since(entry.refreshed) >= time.Minute {
-				entry.stale = true
-			}
 			if entry.stale && cfg.ToolSearch {
 				if r.closed {
 					r.mu.Unlock()
@@ -135,7 +131,6 @@ func (r *Registry) Get(ctx context.Context, cfg *config.Config) (*Catalog, strin
 	if compileErr != nil {
 		delete(r.entries, fingerprint)
 	} else {
-		entry.refreshed = time.Now()
 		if !r.closed {
 			compiled.StartSearchIndex(r.ctx)
 		}
@@ -214,10 +209,9 @@ func (r *Registry) Refresh(ctx context.Context, cfg *config.Config) (*Catalog, s
 		return nil, fingerprint, err
 	}
 	entry := &registryEntry{
-		ready:     make(chan struct{}),
-		catalog:   compiled,
-		config:    cfg,
-		refreshed: time.Now(),
+		ready:   make(chan struct{}),
+		catalog: compiled,
+		config:  cfg,
 	}
 	close(entry.ready)
 	compiled.StartSearchIndex(r.ctx)
@@ -306,7 +300,6 @@ func (r *Registry) finishRefresh(fingerprint string, entry *registryEntry, compi
 		old := entry.catalog
 		entry.catalog = compiled
 		entry.err = nil
-		entry.refreshed = time.Now()
 		old.StopSearchIndex()
 	}
 	entry.refreshing = false
