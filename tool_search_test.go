@@ -151,8 +151,8 @@ func TestToolSearchAndGenericInvocation(t *testing.T) {
 				Name:      toolsearch.CallToolName,
 				Arguments: invoke,
 			})
-			if err != nil || !upgraded.IsError || upgraded.Content[0].(*mcp.TextContent).Text != "STALE_TOOL_REFERENCE: tool changed; search again" {
-				t.Fatalf("snapshot upgrade should require rediscovery: %v %+v", err, upgraded)
+			if err != nil || upgraded.IsError || upgraded.Content[0].(*mcp.TextContent).Text != `{"number":"456"}` {
+				t.Fatalf("unchanged tool definition should remain callable after rediscovery: %v %+v", err, upgraded)
 			}
 
 			cfg.Servers[0].DisableTools = true

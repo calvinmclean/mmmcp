@@ -3,6 +3,8 @@ package toolsearch
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -162,6 +164,15 @@ func Definitions() []*mcp.Tool {
 			},
 		},
 	}
+}
+
+// Revision identifies an exposed tool definition and its source tool.
+// Its inputs must be safe to expose to clients: component connection settings
+// may contain credentials and must not contribute to a client-visible digest.
+func Revision(ref Reference, componentName, originalToolName string, tool *mcp.Tool) string {
+	data, _ := json.Marshal([]any{ref, componentName, originalToolName, tool})
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:16])
 }
 
 // New creates an unbuilt index for one allowed-tool snapshot.

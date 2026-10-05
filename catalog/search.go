@@ -2,9 +2,6 @@ package catalog
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -20,7 +17,7 @@ func (c *Catalog) searchDocuments() []toolsearch.Document {
 			ExposedName: tool.Name,
 			Component:   route.Component.Name,
 			Reference:   ref,
-			Revision:    toolRevision(route, tool),
+			Revision:    toolsearch.Revision(ref, route.Component.Name, route.Tool.Name, tool),
 			Tool:        tool,
 		})
 	}
@@ -56,14 +53,8 @@ func (c *Catalog) RouteReference(ref toolsearch.Reference) (ToolRoute, string, b
 	for _, tool := range c.tools {
 		route := c.toolRoutes[tool.Name]
 		if route.Reference() == ref {
-			return route, toolRevision(route, tool), true
+			return route, toolsearch.Revision(ref, route.Component.Name, route.Tool.Name, tool), true
 		}
 	}
 	return ToolRoute{}, "", false
-}
-
-func toolRevision(route ToolRoute, tool *mcp.Tool) string {
-	data, _ := json.Marshal([]any{route.Reference(), route.Component, tool})
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:16])
 }

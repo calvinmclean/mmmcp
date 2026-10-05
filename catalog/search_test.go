@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -194,7 +195,61 @@ func TestSearchRevisionChangesWhenComponentNameChanges(t *testing.T) {
 	}
 }
 
-func TestSearchRevisionChangesWhenRouteChanges(t *testing.T) {
+func TestSearchRevisionChangesWhenToolDefinitionChanges(t *testing.T) {
+	features := &component.Features{Tools: []*mcp.Tool{{
+		Name:        "lookup",
+		InputSchema: map[string]any{"type": "object"},
+	}}}
+	discoverer := featureDiscoverer{features: map[string]*component.Features{"current": features}}
+	cfg := &config.Config{ToolSearch: true, Servers: []config.Server{{
+		Name: "current",
+		URL:  "https://example.invalid",
+	}}}
+	first, err := catalog.Compile(t.Context(), cfg, discoverer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldResults, err := searchCatalog(t.Context(), first, "lookup", 1, 0)
+	if err != nil || len(oldResults.Tools) != 1 {
+		t.Fatalf("first search: %+v, %v", oldResults, err)
+	}
+
+	discoverer.features["current"] = &component.Features{Tools: []*mcp.Tool{{
+		Name: "lookup",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": map[string]any{"type": "string"},
+			},
+		},
+	}}}
+	second, err := catalog.Compile(t.Context(), cfg, discoverer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newResults, err := searchCatalog(t.Context(), second, "lookup", 1, 0)
+	if err != nil || len(newResults.Tools) != 1 {
+		t.Fatalf("second search: %+v, %v", newResults, err)
+	}
+	old, current := oldResults.Tools[0], newResults.Tools[0]
+	if old.Reference != current.Reference || old.Revision == current.Revision {
+		t.Fatalf("tool definition change did not update revision: old=%+v current=%+v", old, current)
+	}
+	args, err := json.Marshal(toolsearch.CallArguments{Tool: old.Reference, Revision: old.Revision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call, ok, err := second.ResolveToolCall(t.Context(), toolsearch.CallToolName, args)
+	if err != nil || !ok || call.Result == nil || !call.Result.IsError {
+		t.Fatalf("old tool definition was accepted: %+v, %v, %v", call, ok, err)
+	}
+	content := call.Result.Content[0].(*mcp.TextContent)
+	if !strings.Contains(content.Text, "STALE_TOOL_REFERENCE") {
+		t.Fatalf("old tool definition returned wrong result: %q", content.Text)
+	}
+}
+
+func TestSearchRevisionIgnoresComponentConnectionSettings(t *testing.T) {
 	base := config.Server{
 		Name:    "current",
 		URL:     "https://first.invalid",
@@ -248,6 +303,14 @@ func TestSearchRevisionChangesWhenRouteChanges(t *testing.T) {
 				Command: "different-server",
 			},
 		},
+		{
+			name: "environment",
+			server: config.Server{
+				Name: base.Name,
+				URL:  base.URL,
+				Env:  map[string]string{"API_TOKEN": "second"},
+			},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			currentCatalog := compile(tc.server)
@@ -255,8 +318,8 @@ func TestSearchRevisionChangesWhenRouteChanges(t *testing.T) {
 			if current.Reference != old.Reference {
 				t.Fatalf("reference changed: %v != %v", current.Reference, old.Reference)
 			}
-			if current.Revision == old.Revision {
-				t.Fatal("route change did not invalidate tool revision")
+			if current.Revision != old.Revision {
+				t.Fatal("connection setting changed tool revision")
 			}
 
 			args, err := json.Marshal(toolsearch.CallArguments{Tool: old.Reference, Revision: old.Revision})
@@ -264,12 +327,11 @@ func TestSearchRevisionChangesWhenRouteChanges(t *testing.T) {
 				t.Fatal(err)
 			}
 			call, ok, err := currentCatalog.ResolveToolCall(t.Context(), toolsearch.CallToolName, args)
-			if err != nil || !ok || call.Result == nil || !call.Result.IsError {
-				t.Fatalf("old route reference was accepted: %+v, %v, %v", call, ok, err)
+			if err != nil || !ok || call.Route == nil || call.Result != nil {
+				t.Fatalf("current tool reference was rejected: %+v, %v, %v", call, ok, err)
 			}
-			content := call.Result.Content[0].(*mcp.TextContent)
-			if !strings.Contains(content.Text, "STALE_TOOL_REFERENCE") {
-				t.Fatalf("old route reference returned wrong result: %q", content.Text)
+			if !reflect.DeepEqual(call.Route.Component, tc.server) {
+				t.Fatalf("tool call did not use current component settings: %+v", call.Route.Component)
 			}
 		})
 	}
