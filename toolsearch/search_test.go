@@ -238,12 +238,82 @@ func TestSearchToolRejectsNegativeOffset(t *testing.T) {
 
 func TestSearchToolDefinitionAllowsUnboundedPositiveLimit(t *testing.T) {
 	properties := Definitions()[0].InputSchema.(map[string]any)["properties"].(map[string]any)
+	if _, required := Definitions()[0].InputSchema.(map[string]any)["required"]; required {
+		t.Fatal("search tool still requires a query")
+	}
+	if _, ok := properties["name"]; !ok {
+		t.Fatal("search tool does not expose exact lookup")
+	}
+	if _, ok := properties["detail"]; ok {
+		t.Fatal("search tool still exposes browse detail")
+	}
 	limit := properties["limit"].(map[string]any)
 	if _, capped := limit["maximum"]; capped {
 		t.Fatalf("limit schema still has a maximum: %+v", limit)
 	}
 	if offset := properties["offset"].(map[string]any); offset["minimum"] != 0 {
 		t.Fatalf("offset schema: %+v", offset)
+	}
+}
+
+func TestBrowseAndExactLookupBeforeIndexReady(t *testing.T) {
+	index := New([]Document{
+		{ExposedName: "github__get_issue", Component: "github", Reference: Reference{Name: "github__get_issue"}, Revision: "get-revision", Tool: &mcp.Tool{Name: "github__get_issue", Description: "Get an issue", InputSchema: map[string]any{"type": "object"}}},
+		{ExposedName: "gmail__send", Component: "gmail", Reference: Reference{Name: "gmail__send"}, Revision: "send-revision", Tool: &mcp.Tool{Name: "gmail__send", InputSchema: map[string]any{"type": "object"}}},
+		{ExposedName: "github__create_issue", Component: "github", Reference: Reference{Name: "github__create_issue"}, Revision: "create-revision", Tool: &mcp.Tool{Name: "github__create_issue", InputSchema: map[string]any{"type": "object"}}},
+	})
+
+	call := func(arguments any) *mcp.CallToolResult {
+		t.Helper()
+		result, err := index.Call(t.Context(), arguments)
+		if err != nil || result.IsError {
+			t.Fatalf("call(%v) = %+v, %v", arguments, result, err)
+		}
+		wire, err := json.Marshal(result.StructuredContent)
+		if err != nil || result.Content[0].(*mcp.TextContent).Text != string(wire) {
+			t.Fatalf("text and structured results differ: %s, %v", wire, err)
+		}
+		return result
+	}
+
+	for _, arguments := range []any{nil, map[string]any{}} {
+		browse := call(arguments).StructuredContent.(BrowseResults)
+		if len(browse.Components) != 2 || browse.Components[0].Name != "github" || browse.Components[0].ToolCount != 2 || browse.Components[1].Name != "gmail" || browse.Components[1].ToolCount != 1 {
+			t.Fatalf("browse(%v) = %+v", arguments, browse)
+		}
+		if got := browse.Components[0].Tools; len(got) != 2 || got[0] != "github__create_issue" || got[1] != "github__get_issue" {
+			t.Fatalf("browse(%v) = %+v", arguments, browse)
+		}
+		if got := browse.Components[1].Tools; len(got) != 1 || got[0] != "gmail__send" {
+			t.Fatalf("browse(%v) = %+v", arguments, browse)
+		}
+	}
+
+	lookup := call(map[string]any{"name": "github__get_issue"}).StructuredContent.(Results)
+	if lookup.HasMore || len(lookup.Tools) != 1 || lookup.Tools[0].Revision != "get-revision" || lookup.Tools[0].Tool.InputSchema == nil {
+		t.Fatalf("exact lookup = %+v", lookup)
+	}
+	missing := call(map[string]any{"name": "get_issue"}).StructuredContent.(Results)
+	if missing.HasMore || len(missing.Tools) != 0 {
+		t.Fatalf("non-exact lookup = %+v", missing)
+	}
+}
+
+func TestSearchModesRejectInvalidArguments(t *testing.T) {
+	index := testIndex()
+	for _, arguments := range []any{
+		map[string]any{"query": ""},
+		map[string]any{"name": ""},
+		map[string]any{"query": "lookup", "name": "billing__lookup"},
+		map[string]any{"limit": 2},
+		map[string]any{"name": "billing__lookup", "offset": 1},
+		map[string]any{"name": nil},
+		[]any{},
+	} {
+		result, err := index.Call(t.Context(), arguments)
+		if err != nil || !result.IsError || !strings.Contains(result.Content[0].(*mcp.TextContent).Text, "INVALID_ARGUMENTS") {
+			t.Fatalf("call(%v) = %+v, %v", arguments, result, err)
+		}
 	}
 }
 

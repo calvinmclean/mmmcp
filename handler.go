@@ -34,7 +34,7 @@ func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
 				}
 			} else {
 				mu.Lock()
-				toolsChanged := previous != nil && previousFingerprint != fingerprint && (previousToolSearch != toolSearch || !reflect.DeepEqual(previous.Tools(), compiled.Tools()))
+				toolsChanged := previous != nil && previousFingerprint != fingerprint && (previousToolSearch != toolSearch || !reflect.DeepEqual(previous.Tools(), compiled.Tools()) || !reflect.DeepEqual(previous.VisibleTools(), compiled.VisibleTools()))
 				previous, previousFingerprint, previousToolSearch = compiled, fingerprint, toolSearch
 				mu.Unlock()
 				if toolsChanged && method != "tools/list" {

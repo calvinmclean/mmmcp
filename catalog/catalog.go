@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -39,6 +40,11 @@ func (c *Catalog) ServerInfo() *mcp.Implementation {
 
 // Tools returns a copy of the sorted tool slice.
 func (c *Catalog) Tools() []*mcp.Tool { return append([]*mcp.Tool(nil), c.tools...) }
+
+// VisibleTools returns a copy of the tools advertised to frontend clients.
+func (c *Catalog) VisibleTools() []*mcp.Tool {
+	return append([]*mcp.Tool(nil), c.visibleTools...)
+}
 
 // Prompts returns a copy of the sorted prompt slice.
 func (c *Catalog) Prompts() []*mcp.Prompt { return append([]*mcp.Prompt(nil), c.prompts...) }
@@ -82,6 +88,19 @@ func (c *Catalog) RouteResource(uri string) (ResourceRoute, bool) {
 func newCatalog(c *Catalog) (*Catalog, error) {
 	sort.Slice(c.tools, func(i, j int) bool { return c.tools[i].Name < c.tools[j].Name })
 
+	// Include the available component names in the search tool's visible definition.
+	if c.toolSearch {
+		components := make(map[string]struct{})
+		for _, tool := range c.tools {
+			components[c.toolRoutes[tool.Name].Component.Name] = struct{}{}
+		}
+		names := make([]string, 0, len(components))
+		for name := range components {
+			names = append(names, name)
+		}
+		slices.Sort(names)
+		c.visibleTools = toolsearch.Definitions(names...)
+	}
 	sort.Slice(c.visibleTools, func(i, j int) bool { return c.visibleTools[i].Name < c.visibleTools[j].Name })
 
 	sort.Slice(c.prompts, func(i, j int) bool { return c.prompts[i].Name < c.prompts[j].Name })

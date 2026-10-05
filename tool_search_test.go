@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -104,6 +105,31 @@ func TestToolSearchAndGenericInvocation(t *testing.T) {
 					t.Fatal("search tool was callable in off mode")
 				}
 				return
+			}
+			if listed.Tools[1].Name != toolsearch.SearchToolName || !strings.Contains(listed.Tools[1].Description, "Available components: billing.") {
+				t.Fatalf("search tool did not advertise component: %+v", listed.Tools)
+			}
+			browsed, err := session.CallTool(t.Context(), &mcp.CallToolParams{
+				Name:      toolsearch.SearchToolName,
+				Arguments: map[string]any{},
+			})
+			if err != nil || browsed.IsError {
+				t.Fatalf("browse failed: %v %+v", err, browsed)
+			}
+			var groups toolsearch.BrowseResults
+			if err := json.Unmarshal([]byte(browsed.Content[0].(*mcp.TextContent).Text), &groups); err != nil || len(groups.Components) != 1 || groups.Components[0].Name != "billing" || groups.Components[0].ToolCount != 1 || len(groups.Components[0].Tools) != 1 || groups.Components[0].Tools[0] != "lookup" {
+				t.Fatalf("browse result: %v %+v", err, groups)
+			}
+			described, err := session.CallTool(t.Context(), &mcp.CallToolParams{
+				Name:      toolsearch.SearchToolName,
+				Arguments: map[string]any{"name": "lookup"},
+			})
+			if err != nil || described.IsError {
+				t.Fatalf("exact lookup failed: %v %+v", err, described)
+			}
+			var exact toolsearch.Results
+			if err := json.Unmarshal([]byte(described.Content[0].(*mcp.TextContent).Text), &exact); err != nil || len(exact.Tools) != 1 || exact.Tools[0].Tool.InputSchema == nil || exact.Tools[0].Revision == "" {
+				t.Fatalf("exact lookup result: %v %+v", err, exact)
 			}
 
 			found, err := session.CallTool(t.Context(), &mcp.CallToolParams{

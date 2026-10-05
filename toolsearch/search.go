@@ -67,6 +67,18 @@ type Results struct {
 	HasMore bool  `json:"hasMore"`
 }
 
+// Component is a browsable group of exposed tools.
+type Component struct {
+	Name      string   `json:"name"`
+	ToolCount int      `json:"toolCount"`
+	Tools     []string `json:"tools"`
+}
+
+// BrowseResults lists the components with available tools.
+type BrowseResults struct {
+	Components []Component `json:"components"`
+}
+
 // CallArguments is the input accepted by the generic MCP call tool.
 type CallArguments struct {
 	Name      string          `json:"name"`
@@ -112,17 +124,25 @@ func ParseCallArguments(arguments any) (CallArguments, error) {
 }
 
 // Definitions returns the search and generic call MCP tool definitions.
-func Definitions() []*mcp.Tool {
+func Definitions(componentNames ...string) []*mcp.Tool {
+	description := "Discover available tools. Call with no arguments to list every tool name by component. Use query for ranked search, or name for an exact tool definition. Search and exact results include schemas and references for call_tool. Use offset to continue a query when hasMore is true."
+	if len(componentNames) > 0 {
+		description += " Available components: " + strings.Join(componentNames, ", ") + "."
+	}
 	return []*mcp.Tool{
 		{
 			Name:        SearchToolName,
-			Description: "Find available tools by name, description, and input parameters. Results include schemas and references for call_tool. Use offset to retrieve further results when hasMore is true.",
+			Description: description,
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"query": map[string]any{
 						"type":        "string",
-						"description": "Natural-language tool search query",
+						"description": "Natural-language tool search query; omit to browse",
+					},
+					"name": map[string]any{
+						"type":        "string",
+						"description": "Exact exposed tool name to describe, including its schema and call revision",
 					},
 					"limit": map[string]any{
 						"type":    "integer",
@@ -136,7 +156,6 @@ func Definitions() []*mcp.Tool {
 						"description": "Number of ranked results to skip",
 					},
 				},
-				"required": []string{"query"},
 			},
 		},
 		{
@@ -532,45 +551,103 @@ func (i *Index) Search(ctx context.Context, text string, limit, offset int) (Res
 	return response, nil
 }
 
-// Call handles the search MCP tool's arguments and result formatting.
+// browse reads the immutable allowed-tool snapshot without waiting for the text index.
+func (i *Index) browse() BrowseResults {
+	groups := make(map[string][]string)
+	for _, doc := range i.documents {
+		groups[doc.Component] = append(groups[doc.Component], doc.ExposedName)
+	}
+
+	results := BrowseResults{Components: make([]Component, 0, len(groups))}
+	for name, names := range groups {
+		slices.Sort(names)
+		component := Component{Name: name, ToolCount: len(names), Tools: names}
+		results.Components = append(results.Components, component)
+	}
+	slices.SortFunc(results.Components, func(a, b Component) int { return strings.Compare(a.Name, b.Name) })
+	return results
+}
+
+// lookup returns the same full hit as search, without requiring a text query.
+func (i *Index) lookup(name string) Results {
+	results := Results{Tools: []Hit{}}
+	if doc, ok := i.documents[name]; ok {
+		results.Tools = append(results.Tools, Hit{
+			Reference: doc.Reference,
+			Revision:  doc.Revision,
+			Component: doc.Component,
+			Tool:      doc.Tool,
+		})
+	}
+	return results
+}
+
+// Call handles browse, search, and exact lookup arguments and result formatting.
 func (i *Index) Call(ctx context.Context, arguments any) (*mcp.CallToolResult, error) {
+	const invalid = "INVALID_ARGUMENTS: call without arguments to browse, use query for search, or name for exact lookup; limit and offset apply only to search"
+	data, err := json.Marshal(arguments)
+	if err != nil {
+		return toolError(invalid), nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil || (fields == nil && string(data) != "null") {
+		return toolError(invalid), nil
+	}
 	var params struct {
 		Query  string `json:"query"`
+		Name   string `json:"name"`
 		Limit  int    `json:"limit"`
 		Offset int    `json:"offset"`
 	}
-
-	data, err := json.Marshal(arguments)
-	if err != nil {
-		return toolError("INVALID_ARGUMENTS: expected query and optional limit and offset"), nil
-	}
 	if err := json.Unmarshal(data, &params); err != nil {
-		return toolError("INVALID_ARGUMENTS: expected query and optional limit and offset"), nil
+		return toolError(invalid), nil
+	}
+	for _, field := range []string{"query", "name", "limit", "offset"} {
+		if string(fields[field]) == "null" {
+			return toolError(invalid), nil
+		}
+	}
+	_, hasQuery := fields["query"]
+	_, hasName := fields["name"]
+	_, hasLimit := fields["limit"]
+	_, hasOffset := fields["offset"]
+	if hasQuery && hasName || !hasQuery && (hasLimit || hasOffset) {
+		return toolError(invalid), nil
 	}
 
-	if params.Limit == 0 {
-		params.Limit = 5
+	var result any
+	switch {
+	case hasQuery:
+		if params.Limit == 0 {
+			params.Limit = 5
+		}
+		if strings.TrimSpace(params.Query) == "" || params.Limit < 1 || params.Offset < 0 {
+			return toolError("INVALID_ARGUMENTS: query must be nonempty, limit must be positive, and offset must be nonnegative"), nil
+		}
+		found, err := i.Search(ctx, params.Query, params.Limit, params.Offset)
+		if errors.Is(err, ErrNotReady) {
+			return toolError("SEARCH_INDEX_NOT_READY: Tool search is still indexing; retry shortly."), nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		result = found
+	case hasName:
+		if strings.TrimSpace(params.Name) == "" {
+			return toolError(invalid), nil
+		}
+		result = i.lookup(params.Name)
+	default:
+		result = i.browse()
 	}
 
-	if strings.TrimSpace(params.Query) == "" || params.Limit < 1 || params.Offset < 0 {
-		return toolError("INVALID_ARGUMENTS: query must be nonempty, limit must be positive, and offset must be nonnegative"), nil
-	}
-
-	results, err := i.Search(ctx, params.Query, params.Limit, params.Offset)
-	if errors.Is(err, ErrNotReady) {
-		return toolError("SEARCH_INDEX_NOT_READY: Tool search is still indexing; retry shortly."), nil
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	output, err := json.Marshal(results)
+	output, err := json.Marshal(result)
 	if err != nil {
 		return nil, err
 	}
 
 	return &mcp.CallToolResult{
-		StructuredContent: results,
+		StructuredContent: result,
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: string(output)},
 		},
