@@ -208,6 +208,18 @@ func New(documents []Document) *Index {
 	return state
 }
 
+// Revision returns the revision indexed for a tool reference in this snapshot.
+func (i *Index) Revision(ref Reference) (string, bool) {
+	if i == nil {
+		return "", false
+	}
+	doc, ok := i.documents[ref.Name]
+	if !ok || doc.Reference != ref {
+		return "", false
+	}
+	return doc.Revision, true
+}
+
 // Start builds in the background and retries failed attempts until stopped.
 func (i *Index) Start(ctx context.Context) {
 	i.once.Do(func() {
@@ -306,6 +318,8 @@ func searchText(value string) string {
 }
 
 func schemaTerms(value any) string {
+	const maxParts = 256
+
 	var schema any
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -318,7 +332,7 @@ func schemaTerms(value any) string {
 	var parts []string
 	var walk func(any, int)
 	walk = func(value any, depth int) {
-		if depth > 12 || len(parts) > 256 {
+		if depth > 12 || len(parts) >= maxParts {
 			return
 		}
 		switch value := value.(type) {
@@ -329,6 +343,9 @@ func schemaTerms(value any) string {
 			}
 			slices.Sort(keys)
 			for _, key := range keys {
+				if len(parts) >= maxParts {
+					return
+				}
 				child := value[key]
 				switch key {
 				case "properties", "$defs", "definitions":
@@ -339,6 +356,9 @@ func schemaTerms(value any) string {
 						}
 						slices.Sort(fieldNames)
 						for _, name := range fieldNames {
+							if len(parts) >= maxParts {
+								return
+							}
 							parts = append(parts, searchText(name))
 							walk(fields[name], depth+1)
 						}
@@ -353,6 +373,9 @@ func schemaTerms(value any) string {
 			}
 		case []any:
 			for _, child := range value {
+				if len(parts) >= maxParts {
+					return
+				}
 				walk(child, depth+1)
 			}
 		}

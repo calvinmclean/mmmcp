@@ -50,6 +50,15 @@ func (c *Catalog) SearchTool(ctx context.Context, arguments any) (*mcp.CallToolR
 // RouteReference returns the current route and revision for an exposed tool reference.
 // It reports false when the tool is absent from this catalog.
 func (c *Catalog) RouteReference(ref toolsearch.Reference) (ToolRoute, string, bool) {
+	if c.searchIndex != nil {
+		revision, ok := c.searchIndex.Revision(ref)
+		if !ok {
+			return ToolRoute{}, "", false
+		}
+		route, ok := c.toolRoutes[ref.Name]
+		return route, revision, ok
+	}
+	// Direct-mode catalogs have no search index and do not make generic calls.
 	for _, tool := range c.tools {
 		route := c.toolRoutes[tool.Name]
 		if route.Reference() == ref {

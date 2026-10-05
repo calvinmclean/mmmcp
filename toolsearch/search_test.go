@@ -33,6 +33,21 @@ func testIndex() *Index {
 	})
 }
 
+func TestSchemaTermsStopsAtWidePropertyLimit(t *testing.T) {
+	properties := make(map[string]any, 400)
+	for i := range 400 {
+		properties[fmt.Sprintf("field_%03d", i)] = map[string]any{"type": "string"}
+	}
+
+	terms := schemaTerms(map[string]any{"properties": properties})
+	if got := strings.Count(terms, "field_"); got != 256 {
+		t.Fatalf("indexed %d property names, want 256", got)
+	}
+	if !strings.Contains(terms, "field_255") || strings.Contains(terms, "field_256") {
+		t.Fatalf("schema terms exceeded the sorted property limit: %q", terms)
+	}
+}
+
 func TestParseCallArgumentsRequiresObjectWhenProvided(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
