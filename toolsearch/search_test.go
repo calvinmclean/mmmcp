@@ -33,6 +33,41 @@ func testIndex() *Index {
 	})
 }
 
+func TestSearchText(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "camel case",
+			input: "getInvoiceByID",
+			want:  "getinvoicebyid get invoice by id",
+		},
+		{
+			name:  "underscores",
+			input: "billing_find",
+			want:  "billing_find billing find",
+		},
+		{
+			name:  "mixed separators",
+			input: "list-tools/v2",
+			want:  "list-tools/v2 list tools v2",
+		},
+		{
+			name:  "plain name",
+			input: "lookup",
+			want:  "lookup lookup",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := searchText(tc.input); got != tc.want {
+				t.Fatalf("searchText(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestSchemaTermsStopsAtWidePropertyLimit(t *testing.T) {
 	properties := make(map[string]any, 400)
 	for i := range 400 {

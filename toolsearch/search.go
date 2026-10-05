@@ -305,12 +305,16 @@ func (i *Index) await(ctx context.Context, timeout time.Duration) error {
 	}
 }
 
+// searchText keeps an identifier's original form and adds words split from
+// camel case and common separators so either form can match a query.
 func searchText(value string) string {
 	splitCamelCase := camelBoundary.ReplaceAllString(value, "$1 $2")
 	splitSeparators := separators.Replace(splitCamelCase)
 	return strings.ToLower(value) + " " + strings.ToLower(splitSeparators)
 }
 
+// schemaTerms extracts searchable field names, titles, and descriptions from
+// an input schema, bounded by traversal depth and the number of text parts.
 func schemaTerms(value any) string {
 	const maxParts = 256
 
@@ -378,6 +382,8 @@ func schemaTerms(value any) string {
 	return strings.Join(parts, " ")
 }
 
+// buildIndex adds one document per tool to an in-memory Bleve index, using
+// names, component names, descriptions, and input schemas as search fields.
 func buildIndex(ctx context.Context, documents map[string]Document) (bleve.Index, error) {
 	mapping := bleve.NewIndexMapping()
 	mapping.ScoringModel = "bm25"
