@@ -32,7 +32,8 @@ const (
 
 var (
 	// ErrNotReady indicates that the index did not become ready before the wait ended.
-	ErrNotReady = errors.New("tool search index is not ready")
+	ErrNotReady             = errors.New("tool search index is not ready")
+	errInvalidCallArguments = errors.New("tool and revision are required; arguments must be an object when provided")
 
 	camelBoundary = regexp.MustCompile(`([a-z0-9])([A-Z])`)
 	separators    = strings.NewReplacer("_", " ", "-", " ", "/", " ", ".", " ")
@@ -70,7 +71,7 @@ type Results struct {
 type CallArguments struct {
 	Tool      Reference       `json:"tool"`
 	Revision  string          `json:"revision"`
-	Arguments json.RawMessage `json:"arguments"`
+	Arguments json.RawMessage `json:"arguments,omitempty"`
 }
 
 // Index owns one immutable snapshot's index and its background builder.
@@ -97,15 +98,20 @@ func ParseCallArguments(arguments any) (CallArguments, error) {
 	var args CallArguments
 	data, err := json.Marshal(arguments)
 	if err != nil {
-		return CallArguments{}, errors.New("tool, revision, and arguments are required")
+		return CallArguments{}, errInvalidCallArguments
 	}
 
 	if err := json.Unmarshal(data, &args); err != nil || args.Tool.Name == "" || args.Revision == "" {
-		return CallArguments{}, errors.New("tool, revision, and arguments are required")
+		return CallArguments{}, errInvalidCallArguments
 	}
 
 	if len(args.Arguments) == 0 {
 		args.Arguments = json.RawMessage(`{}`)
+	} else {
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(args.Arguments, &object); err != nil || object == nil {
+			return CallArguments{}, errInvalidCallArguments
+		}
 	}
 	return args, nil
 }

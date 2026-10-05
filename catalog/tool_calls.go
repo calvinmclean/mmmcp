@@ -44,7 +44,7 @@ func (c *Catalog) ResolveToolCall(ctx context.Context, name string, arguments js
 	case toolsearch.CallToolName:
 		args, err := toolsearch.ParseCallArguments(arguments)
 		if err != nil {
-			return failedToolCall(invalidArgumentsCode, "tool, revision, and arguments are required"), true, nil
+			return failedToolCall(invalidArgumentsCode, err.Error()), true, nil
 		}
 
 		route, revision, ok := c.RouteReference(args.Tool)

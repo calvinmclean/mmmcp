@@ -449,8 +449,13 @@ func TestSearchUsesEffectiveOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if call, ok, err := compiled.ResolveToolCall(t.Context(), toolsearch.CallToolName, args); err != nil || !ok || call.Result == nil || !call.Result.IsError {
-		t.Fatalf("generic call did not check revision: %+v, %v, %v", call, ok, err)
+	if call, ok, err := compiled.ResolveToolCall(t.Context(), toolsearch.CallToolName, args); err != nil || !ok || call.Result == nil || !call.Result.IsError || !strings.Contains(call.Result.Content[0].(*mcp.TextContent).Text, "STALE_TOOL_REFERENCE") {
+		t.Fatalf("generic call did not check revision with omitted arguments: %+v, %v, %v", call, ok, err)
+	}
+
+	args = json.RawMessage(`{"tool":{"name":"billing__modernname"},"revision":"bad","arguments":null}`)
+	if call, ok, err := compiled.ResolveToolCall(t.Context(), toolsearch.CallToolName, args); err != nil || !ok || call.Result == nil || !call.Result.IsError || call.Result.Content[0].(*mcp.TextContent).Text != "INVALID_ARGUMENTS: tool and revision are required; arguments must be an object when provided" {
+		t.Fatalf("generic call did not explain invalid arguments: %+v, %v, %v", call, ok, err)
 	}
 
 	cfg.Servers[0].DisableTools = true

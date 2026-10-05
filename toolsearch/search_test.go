@@ -33,6 +33,69 @@ func testIndex() *Index {
 	})
 }
 
+func TestParseCallArgumentsRequiresObjectWhenProvided(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		arguments string
+		want      string
+		wantError bool
+	}{
+		{
+			name: "omitted",
+			want: `{}`,
+		},
+		{
+			name:      "empty object",
+			arguments: `,"arguments":{}`,
+			want:      `{}`,
+		},
+		{
+			name:      "object",
+			arguments: `,"arguments":{"key":"value"}`,
+			want:      `{"key":"value"}`,
+		},
+		{
+			name:      "null",
+			arguments: `,"arguments":null`,
+			wantError: true,
+		},
+		{
+			name:      "array",
+			arguments: `,"arguments":[]`,
+			wantError: true,
+		},
+		{
+			name:      "string",
+			arguments: `,"arguments":"value"`,
+			wantError: true,
+		},
+		{
+			name:      "number",
+			arguments: `,"arguments":1`,
+			wantError: true,
+		},
+		{
+			name:      "boolean",
+			arguments: `,"arguments":false`,
+			wantError: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			input := json.RawMessage(`{"tool":{"name":"lookup"},"revision":"current"` + tc.arguments + `}`)
+			parsed, err := ParseCallArguments(input)
+			if tc.wantError {
+				if err == nil || !strings.Contains(err.Error(), "arguments must be an object when provided") {
+					t.Fatalf("expected object validation error, got %+v, %v", parsed, err)
+				}
+				return
+			}
+			if err != nil || string(parsed.Arguments) != tc.want {
+				t.Fatalf("parsed arguments = %q, error = %v; want %q", parsed.Arguments, err, tc.want)
+			}
+		})
+	}
+}
+
 func TestSearchToolPagesAllMatches(t *testing.T) {
 	documents := make([]Document, 0, 26)
 	for n := range 25 {
