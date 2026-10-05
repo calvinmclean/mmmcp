@@ -86,6 +86,10 @@ func (r *Registry) Get(ctx context.Context, cfg *config.Config) (*Catalog, strin
 		case <-entry.ready:
 			r.mu.Lock()
 			catalog, entryErr := entry.catalog, entry.err
+			if entryErr != nil {
+				r.mu.Unlock()
+				return catalog, fingerprint, entryErr
+			}
 			if cfg.ToolSearch && time.Since(entry.refreshed) >= time.Minute {
 				entry.stale = true
 			}
