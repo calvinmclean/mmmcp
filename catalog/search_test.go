@@ -16,7 +16,6 @@ import (
 )
 
 type searchDiscoverer struct{}
-type collisionDiscoverer struct{}
 
 func searchCatalog(ctx context.Context, compiled *catalog.Catalog, query string, limit, offset int) (toolsearch.Results, error) {
 	result, err := compiled.SearchTool(ctx, map[string]any{
@@ -337,31 +336,6 @@ func TestSearchRevisionIgnoresComponentConnectionSettings(t *testing.T) {
 	}
 }
 
-func TestSearchReservedToolCollision(t *testing.T) {
-	cfg := &config.Config{
-		ToolSearch: true,
-		Servers: []config.Server{{
-			Name: "fixture",
-			URL:  "https://example.invalid",
-		}},
-	}
-	_, err := catalog.Compile(t.Context(), cfg, collisionDiscoverer{})
-	if err == nil {
-		t.Fatal("reserved name should reject search catalog")
-	}
-
-	cfg.ToolSearch = false
-	compiled, err := catalog.Compile(t.Context(), cfg, collisionDiscoverer{})
-	if err != nil {
-		t.Fatalf("off mode should allow existing component name: %v", err)
-	}
-
-	call, ok, err := compiled.ResolveToolCall(t.Context(), toolsearch.SearchToolName, nil)
-	if err != nil || !ok || call.Route == nil || call.Route.Tool.Name != toolsearch.SearchToolName {
-		t.Fatalf("off mode should route component tool with search name: %+v, %v, %v", call, ok, err)
-	}
-}
-
 func TestSearchUsesEffectiveOverrides(t *testing.T) {
 	annotations := &mcp.ToolAnnotations{ReadOnlyHint: true}
 	schema := map[string]any{
@@ -494,13 +468,4 @@ func TestVisibleToolCursorChangesWithToolSearch(t *testing.T) {
 	if _, _, err := search.PageTools(cursor, 1); err == nil {
 		t.Fatal("cursor from direct mode was accepted in search mode")
 	}
-}
-
-func (collisionDiscoverer) Discover(context.Context, config.Server) (*component.Features, error) {
-	return &component.Features{
-		Tools: []*mcp.Tool{{
-			Name:        toolsearch.SearchToolName,
-			InputSchema: map[string]any{"type": "object"},
-		}},
-	}, nil
 }

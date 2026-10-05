@@ -24,9 +24,9 @@ import (
 
 const (
 	// SearchToolName is the public MCP tool used to find available tools.
-	SearchToolName = "mmmcp_search_tools"
+	SearchToolName = "search_tools"
 	// CallToolName is the public MCP tool used to invoke a search result.
-	CallToolName = "mmmcp_call_tool"
+	CallToolName = "call_tool"
 	searchWait   = 30 * time.Second
 )
 
@@ -88,11 +88,6 @@ type Index struct {
 	retryDelay  time.Duration
 }
 
-// IsToolCall reports whether name belongs to a tool implemented by toolsearch.
-func IsToolCall(name string) bool {
-	return name == SearchToolName || name == CallToolName
-}
-
 // ParseCallArguments validates a generic tool call and defaults omitted arguments to an empty object.
 func ParseCallArguments(arguments any) (CallArguments, error) {
 	var args CallArguments
@@ -121,7 +116,7 @@ func Definitions() []*mcp.Tool {
 	return []*mcp.Tool{
 		{
 			Name:        SearchToolName,
-			Description: "Find available tools by name, description, and input parameters. Results include schemas and references for mmmcp_call_tool. Use offset to retrieve further results when hasMore is true.",
+			Description: "Find available tools by name, description, and input parameters. Results include schemas and references for call_tool. Use offset to retrieve further results when hasMore is true.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -146,7 +141,7 @@ func Definitions() []*mcp.Tool {
 		},
 		{
 			Name:        CallToolName,
-			Description: "Invoke a tool returned by mmmcp_search_tools using its name and revision.",
+			Description: "Invoke a tool returned by search_tools using its name and revision.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{

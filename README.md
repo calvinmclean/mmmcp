@@ -77,19 +77,19 @@ or called. Without overrides, all discovered tools are available. Set the server
 resources are unaffected.
 
 `toolSearch` defaults to `false`, which lists and calls component tools directly.
-When `true`, it lists only `mmmcp_search_tools` and `mmmcp_call_tool` and rejects
+When `true`, it lists only `search_tools` and `call_tool` and rejects
 direct calls to component tools, even when their names are known. Search uses
 the same configured tool selection.
 
 Two tools are enabled when tool search is enabled:
-- `mmmcp_search_tools`: queries the available tools. Results contain the effective
+- `search_tools`: queries the available tools. Results contain the effective
   tool definition, including its input schema. Results are ranked locally using
   Bleve BM25 on tool names, descriptions, component names, and input parameters.
   A renamed tool is indexed by its configured name, not its original name.
   Pass a nonempty `query`, an optional positive `limit` (default 5), and an
   optional zero-based `offset` (default 0). When `hasMore` is true, repeat the
   query with `offset` increased by `limit` to get the next page.
-- `mmmcp_call_tool` accepts the returned tool's `name`, `revision`, and `arguments`. It
+- `call_tool` accepts the returned tool's `name`, `revision`, and `arguments`. It
   rechecks the current catalog on every call, returning `TOOL_UNAVAILABLE` for an
   excluded or removed tool and `STALE_TOOL_REFERENCE` when the tool changed
 
