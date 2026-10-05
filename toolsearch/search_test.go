@@ -96,7 +96,7 @@ func TestParseCallArgumentsRequiresObjectWhenProvided(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			input := json.RawMessage(`{"tool":{"name":"lookup"},"revision":"current"` + tc.arguments + `}`)
+			input := json.RawMessage(`{"name":"lookup","revision":"current"` + tc.arguments + `}`)
 			parsed, err := ParseCallArguments(input)
 			if tc.wantError {
 				if err == nil || !strings.Contains(err.Error(), "arguments must be an object when provided") {

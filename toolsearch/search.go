@@ -33,7 +33,7 @@ const (
 var (
 	// ErrNotReady indicates that the index did not become ready before the wait ended.
 	ErrNotReady             = errors.New("tool search index is not ready")
-	errInvalidCallArguments = errors.New("tool and revision are required; arguments must be an object when provided")
+	errInvalidCallArguments = errors.New("name and revision are required; arguments must be an object when provided")
 
 	camelBoundary = regexp.MustCompile(`([a-z0-9])([A-Z])`)
 	separators    = strings.NewReplacer("_", " ", "-", " ", "/", " ", ".", " ")
@@ -69,7 +69,7 @@ type Results struct {
 
 // CallArguments is the input accepted by the generic MCP call tool.
 type CallArguments struct {
-	Tool      Reference       `json:"tool"`
+	Name      string          `json:"name"`
 	Revision  string          `json:"revision"`
 	Arguments json.RawMessage `json:"arguments,omitempty"`
 }
@@ -101,7 +101,7 @@ func ParseCallArguments(arguments any) (CallArguments, error) {
 		return CallArguments{}, errInvalidCallArguments
 	}
 
-	if err := json.Unmarshal(data, &args); err != nil || args.Tool.Name == "" || args.Revision == "" {
+	if err := json.Unmarshal(data, &args); err != nil || args.Name == "" || args.Revision == "" {
 		return CallArguments{}, errInvalidCallArguments
 	}
 
@@ -146,18 +146,12 @@ func Definitions() []*mcp.Tool {
 		},
 		{
 			Name:        CallToolName,
-			Description: "Invoke a tool returned by mmmcp_search_tools using its reference and revision.",
+			Description: "Invoke a tool returned by mmmcp_search_tools using its name and revision.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"tool": map[string]any{
-						"type": "object",
-						"properties": map[string]any{
-							"name": map[string]any{
-								"type": "string",
-							},
-						},
-						"required": []string{"name"},
+					"name": map[string]any{
+						"type": "string",
 					},
 					"revision": map[string]any{
 						"type": "string",
@@ -166,7 +160,7 @@ func Definitions() []*mcp.Tool {
 						"type": "object",
 					},
 				},
-				"required": []string{"tool", "revision"},
+				"required": []string{"name", "revision"},
 			},
 		},
 	}

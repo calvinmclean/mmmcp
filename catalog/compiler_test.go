@@ -349,7 +349,7 @@ func TestCompileDuplicateComponentNamesUseExposedToolNames(t *testing.T) {
 	for _, hit := range hits.Tools {
 		found[hit.Reference.Name] = true
 		arguments, err := json.Marshal(toolsearch.CallArguments{
-			Tool:     hit.Reference,
+			Name:     hit.Reference.Name,
 			Revision: hit.Revision,
 		})
 		if err != nil {

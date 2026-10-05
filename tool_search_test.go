@@ -124,7 +124,7 @@ func TestToolSearchAndGenericInvocation(t *testing.T) {
 			}
 
 			invoke := map[string]any{
-				"tool":      results.Tools[0].Reference,
+				"name":      results.Tools[0].Reference.Name,
 				"revision":  results.Tools[0].Revision,
 				"arguments": map[string]any{"number": "456"},
 			}

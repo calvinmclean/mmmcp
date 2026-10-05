@@ -277,7 +277,7 @@ func verifyToolSearch(t *testing.T, session *mcp.ClientSession) {
 				t.Fatalf("search omitted complete %s/%s definition: %+v", test.component, test.name, results)
 			}
 			called := callTool(t, session, toolsearch.CallToolName, map[string]any{
-				"tool":      hit.Reference,
+				"name":      hit.Reference.Name,
 				"revision":  hit.Revision,
 				"arguments": test.args,
 			})

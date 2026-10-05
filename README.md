@@ -89,7 +89,7 @@ Two tools are enabled when tool search is enabled:
   Pass a nonempty `query`, an optional positive `limit` (default 5), and an
   optional zero-based `offset` (default 0). When `hasMore` is true, repeat the
   query with `offset` increased by `limit` to get the next page.
-- `mmmcp_call_tool` accepts the returned `tool`, `revision`, and `arguments`. It
+- `mmmcp_call_tool` accepts the returned tool's `name`, `revision`, and `arguments`. It
   rechecks the current catalog on every call, returning `TOOL_UNAVAILABLE` for an
   excluded or removed tool and `STALE_TOOL_REFERENCE` when the tool changed
 

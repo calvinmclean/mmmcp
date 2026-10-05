@@ -144,12 +144,12 @@ func TestSyntheticToolResultsUseFrontendProtocol(t *testing.T) {
 	}
 	for _, invocation := range []map[string]any{
 		{
-			"tool":      found.Tools[0].Reference,
+			"name":      found.Tools[0].Reference.Name,
 			"revision":  found.Tools[0].Revision,
 			"arguments": map[string]any{},
 		},
 		{
-			"tool":      found.Tools[0].Reference,
+			"name":      found.Tools[0].Reference.Name,
 			"revision":  "stale",
 			"arguments": map[string]any{},
 		},

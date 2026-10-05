@@ -178,7 +178,7 @@ func TestSearchRevisionChangesWhenComponentNameChanges(t *testing.T) {
 	}
 
 	args, err := json.Marshal(toolsearch.CallArguments{
-		Tool:      old.Reference,
+		Name:      old.Reference.Name,
 		Revision:  old.Revision,
 		Arguments: json.RawMessage(`{}`),
 	})
@@ -235,7 +235,7 @@ func TestSearchRevisionChangesWhenToolDefinitionChanges(t *testing.T) {
 	if old.Reference != current.Reference || old.Revision == current.Revision {
 		t.Fatalf("tool definition change did not update revision: old=%+v current=%+v", old, current)
 	}
-	args, err := json.Marshal(toolsearch.CallArguments{Tool: old.Reference, Revision: old.Revision})
+	args, err := json.Marshal(toolsearch.CallArguments{Name: old.Reference.Name, Revision: old.Revision})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,7 +322,7 @@ func TestSearchRevisionIgnoresComponentConnectionSettings(t *testing.T) {
 				t.Fatal("connection setting changed tool revision")
 			}
 
-			args, err := json.Marshal(toolsearch.CallArguments{Tool: old.Reference, Revision: old.Revision})
+			args, err := json.Marshal(toolsearch.CallArguments{Name: old.Reference.Name, Revision: old.Revision})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -441,9 +441,7 @@ func TestSearchUsesEffectiveOverrides(t *testing.T) {
 	}
 
 	args, err := json.Marshal(map[string]any{
-		"tool": toolsearch.Reference{
-			Name: "billing__modernname",
-		},
+		"name":     "billing__modernname",
 		"revision": "bad",
 	})
 	if err != nil {
@@ -453,8 +451,8 @@ func TestSearchUsesEffectiveOverrides(t *testing.T) {
 		t.Fatalf("generic call did not check revision with omitted arguments: %+v, %v, %v", call, ok, err)
 	}
 
-	args = json.RawMessage(`{"tool":{"name":"billing__modernname"},"revision":"bad","arguments":null}`)
-	if call, ok, err := compiled.ResolveToolCall(t.Context(), toolsearch.CallToolName, args); err != nil || !ok || call.Result == nil || !call.Result.IsError || call.Result.Content[0].(*mcp.TextContent).Text != "INVALID_ARGUMENTS: tool and revision are required; arguments must be an object when provided" {
+	args = json.RawMessage(`{"name":"billing__modernname","revision":"bad","arguments":null}`)
+	if call, ok, err := compiled.ResolveToolCall(t.Context(), toolsearch.CallToolName, args); err != nil || !ok || call.Result == nil || !call.Result.IsError || call.Result.Content[0].(*mcp.TextContent).Text != "INVALID_ARGUMENTS: name and revision are required; arguments must be an object when provided" {
 		t.Fatalf("generic call did not explain invalid arguments: %+v, %v, %v", call, ok, err)
 	}
 
