@@ -92,6 +92,18 @@ func TestSearchUsesOnlyCompiledToolsAndStableReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	browsed, err := compiled.SearchTool(t.Context(), nil)
+	if err != nil || browsed.IsError {
+		t.Fatalf("browse: %+v, %v", browsed, err)
+	}
+	groups := browsed.StructuredContent.(toolsearch.BrowseResults).Components
+	if len(groups) != 2 || groups[0].Name != "archive" || len(groups[0].Tools) != 1 || groups[0].Tools[0] != "archive__lookup" || groups[1].Name != "current" || len(groups[1].Tools) != 1 || groups[1].Tools[0] != "current__lookup" {
+		t.Fatalf("browse exposed wrong tools: %+v", groups)
+	}
+	visible, _, err := compiled.PageTools("", 5)
+	if err != nil || len(visible) != 2 || !strings.Contains(visible[1].Description, "Available components: archive, current.") {
+		t.Fatalf("visible tool description: %+v, %v", visible, err)
+	}
 
 	results, err := searchCatalog(t.Context(), compiled, "invoiceNumber billing reference", 5, 0)
 	if err != nil {
@@ -159,6 +171,13 @@ func TestSearchRevisionChangesWhenComponentNameChanges(t *testing.T) {
 
 	first := compile("first")
 	second := compile("second")
+	if reflect.DeepEqual(first.VisibleTools(), second.VisibleTools()) || !strings.Contains(first.VisibleTools()[1].Description, "Available components: first.") || !strings.Contains(second.VisibleTools()[1].Description, "Available components: second.") {
+		t.Fatalf("component change did not update visible search description: first=%+v second=%+v", first.VisibleTools(), second.VisibleTools())
+	}
+	browsed, err := second.SearchTool(t.Context(), nil)
+	if err != nil || browsed.IsError || len(browsed.StructuredContent.(toolsearch.BrowseResults).Components) != 1 || browsed.StructuredContent.(toolsearch.BrowseResults).Components[0].Name != "second" {
+		t.Fatalf("new component was not browsable: %+v, %v", browsed, err)
+	}
 	firstResults, err := searchCatalog(t.Context(), first, "lookup", 1, 0)
 	if err != nil || len(firstResults.Tools) != 1 {
 		t.Fatalf("first search: %+v, %v", firstResults, err)
@@ -439,6 +458,14 @@ func TestSearchUsesEffectiveOverrides(t *testing.T) {
 	results, err := searchCatalog(t.Context(), disabled, "modernname", 5, 0)
 	if err != nil || len(results.Tools) != 0 {
 		t.Fatalf("disableTools left searchable tools: %+v, %v", results, err)
+	}
+	browsed, err := disabled.SearchTool(t.Context(), nil)
+	if err != nil || browsed.IsError || len(browsed.StructuredContent.(toolsearch.BrowseResults).Components) != 0 {
+		t.Fatalf("disableTools left browsable components: %+v, %v", browsed, err)
+	}
+	visible, _, err := disabled.PageTools("", 5)
+	if err != nil || len(visible) != 2 || strings.Contains(visible[1].Description, "Available components:") {
+		t.Fatalf("disableTools left component in description: %+v, %v", visible, err)
 	}
 }
 

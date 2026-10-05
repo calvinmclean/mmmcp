@@ -40,7 +40,7 @@ func (s *configToolSubscriptions) observe(id, method string, server *mcp.Server,
 	entry := s.configs[id]
 	var notify []*mcp.Server
 	if entry != nil {
-		if entry.fingerprint != fingerprint && (entry.toolSearch != toolSearch || !reflect.DeepEqual(entry.catalog.Tools(), compiled.Tools())) {
+		if entry.fingerprint != fingerprint && (entry.toolSearch != toolSearch || !reflect.DeepEqual(entry.catalog.Tools(), compiled.Tools()) || !reflect.DeepEqual(entry.catalog.VisibleTools(), compiled.VisibleTools())) {
 			for listener := range entry.servers {
 				notify = append(notify, listener)
 			}
