@@ -151,7 +151,58 @@ func (r *Registry) Refresh(ctx context.Context, cfg *config.Config) (*Catalog, s
 	if err != nil {
 		return nil, "", err
 	}
+	var current *registryEntry
+	// Search catalogs must be marked stale before discovery so Get waits for this
+	// refresh. Wait for any initial compile or earlier refresh to finish first.
+	if cfg.ToolSearch {
+		for {
+			r.mu.Lock()
+			if r.closed {
+				r.mu.Unlock()
+				return nil, fingerprint, context.Canceled
+			}
+			current = r.entries[fingerprint]
+			if current == nil {
+				r.mu.Unlock()
+				break
+			}
+			var done <-chan struct{}
+			select {
+			case <-current.ready:
+				if current.refreshDone != nil {
+					done = current.refreshDone
+				} else {
+					current.stale = true
+					current.refreshing = true
+					current.refreshDone = make(chan struct{})
+				}
+			default:
+				done = current.ready
+			}
+			r.mu.Unlock()
+			if done == nil {
+				break
+			}
+			select {
+			case <-done:
+			case <-ctx.Done():
+				return nil, fingerprint, ctx.Err()
+			}
+		}
+	}
 	compiled, err := compile(ctx, cfg, r.discoverer)
+	// Complete the search refresh on the same entry that Get is waiting on.
+	// Keep it stale after failure or while a notification refresh is pending.
+	if cfg.ToolSearch && current != nil {
+		r.mu.Lock()
+		if r.closed {
+			r.mu.Unlock()
+			return nil, fingerprint, context.Canceled
+		}
+		r.finishRefresh(fingerprint, current, compiled, err)
+		r.mu.Unlock()
+		return compiled, fingerprint, err
+	}
 	if err != nil {
 		if cfg.ToolSearch {
 			r.mu.Lock()
@@ -240,6 +291,16 @@ func (r *Registry) runRefresh(fingerprint string) {
 		}
 		return
 	}
+	r.finishRefresh(fingerprint, entry, compiled, err)
+	r.mu.Unlock()
+	for _, callback := range callbacks {
+		callback(err == nil)
+	}
+}
+
+// finishRefresh installs a successful snapshot and releases Get waiters once
+// no further notification refresh is pending. The caller holds r.mu.
+func (r *Registry) finishRefresh(fingerprint string, entry *registryEntry, compiled *Catalog, err error) {
 	if err == nil {
 		compiled.StartSearchIndex(r.ctx)
 		old := entry.catalog
@@ -260,10 +321,6 @@ func (r *Registry) runRefresh(fingerprint string) {
 	}
 	if pending && !r.closed {
 		entry.timer = time.AfterFunc(refreshDebounce, func() { r.runRefresh(fingerprint) })
-	}
-	r.mu.Unlock()
-	for _, callback := range callbacks {
-		callback(err == nil)
 	}
 }
 

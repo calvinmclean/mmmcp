@@ -25,6 +25,7 @@ type blockedRefreshDiscoverer struct {
 	calls   int
 	started chan struct{}
 	release chan struct{}
+	err     error
 }
 
 func TestSearchCatalogWaitsForRefresh(t *testing.T) {
@@ -73,6 +74,121 @@ func TestSearchCatalogWaitsForRefresh(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Get did not resume after refresh")
+	}
+}
+
+func TestSearchCatalogWaitsForExplicitRefresh(t *testing.T) {
+	discoverer := &blockedRefreshDiscoverer{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	defer func() {
+		select {
+		case <-discoverer.release:
+		default:
+			close(discoverer.release)
+		}
+	}()
+	registry := catalog.NewRegistry(discoverer)
+	defer registry.Close()
+	cfg := &config.Config{
+		ToolSearch: true,
+		Servers:    []config.Server{{Name: "fixture", URL: "https://example.invalid"}},
+	}
+	_, fingerprint, err := registry.Get(t.Context(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	refreshDone := make(chan error, 1)
+	go func() {
+		_, _, err := registry.Refresh(t.Context(), cfg)
+		refreshDone <- err
+	}()
+	select {
+	case <-discoverer.started:
+	case <-time.After(time.Second):
+		t.Fatal("explicit refresh did not start")
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	if _, _, err := registry.Get(ctx, cfg); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Get during explicit refresh returned %v, want deadline exceeded", err)
+	}
+	notified := make(chan bool, 1)
+	registry.RequestRefresh(fingerprint, func(success bool) { notified <- success })
+	close(discoverer.release)
+	select {
+	case err := <-refreshDone:
+		if err != nil {
+			t.Fatalf("explicit refresh failed: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("explicit refresh did not finish")
+	}
+	select {
+	case success := <-notified:
+		if !success {
+			t.Fatal("notification refresh failed")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("notification during explicit refresh was lost")
+	}
+	current, _, err := registry.Get(t.Context(), cfg)
+	if err != nil || current.Tools()[0].Name != "second" {
+		t.Fatalf("Get after explicit refresh returned %+v, %v", current, err)
+	}
+	discoverer.mu.Lock()
+	calls := discoverer.calls
+	discoverer.mu.Unlock()
+	if calls != 3 {
+		t.Fatalf("discoveries = %d, want explicit refresh and notification refresh", calls)
+	}
+}
+
+func TestSearchCatalogFailsClosedAfterFailedExplicitRefresh(t *testing.T) {
+	failure := errors.New("discovery failed")
+	discoverer := &blockedRefreshDiscoverer{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+		err:     failure,
+	}
+	defer func() {
+		select {
+		case <-discoverer.release:
+		default:
+			close(discoverer.release)
+		}
+	}()
+	registry := catalog.NewRegistry(discoverer)
+	defer registry.Close()
+	cfg := &config.Config{
+		ToolSearch: true,
+		Servers:    []config.Server{{Name: "fixture", URL: "https://example.invalid"}},
+	}
+	if _, _, err := registry.Get(t.Context(), cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	refreshDone := make(chan error, 1)
+	go func() {
+		_, _, err := registry.Refresh(t.Context(), cfg)
+		refreshDone <- err
+	}()
+	select {
+	case <-discoverer.started:
+	case <-time.After(time.Second):
+		t.Fatal("explicit refresh did not start")
+	}
+	close(discoverer.release)
+	if err := <-refreshDone; !errors.Is(err, failure) {
+		t.Fatalf("explicit refresh returned %v, want %v", err, failure)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if _, _, err := registry.Get(ctx, cfg); !errors.Is(err, catalog.ErrCatalogUnavailable) {
+		t.Fatalf("failed explicit refresh exposed stale catalog: %v", err)
 	}
 }
 
@@ -249,6 +365,9 @@ func (d *blockedRefreshDiscoverer) Discover(ctx context.Context, _ config.Server
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
+	}
+	if call > 1 && d.err != nil {
+		return nil, d.err
 	}
 	name := "first"
 	if call > 1 {
