@@ -385,7 +385,17 @@ func buildIndex(ctx context.Context, documents map[string]Document) (bleve.Index
 	mapping.DefaultAnalyzer = "en"
 	mapping.DefaultMapping.Dynamic = false
 	for _, field := range []string{"name", "component", "description", "parameters"} {
-		mapping.DefaultMapping.AddFieldMappingsAt(field, bleve.NewTextFieldMapping())
+		fieldMapping := bleve.NewTextFieldMapping()
+		// The indexed terms still support BM25 searches on each named field.
+		// Stored text and term vectors serve retrieval and highlighting; doc values
+		// serve field sorting, and _all duplicates the terms. Search returns tool
+		// definitions from documents and sorts by score and ID, so omitting these
+		// structures saves memory without changing its results.
+		fieldMapping.Store = false
+		fieldMapping.IncludeTermVectors = false
+		fieldMapping.DocValues = false
+		fieldMapping.IncludeInAll = false
+		mapping.DefaultMapping.AddFieldMappingsAt(field, fieldMapping)
 	}
 
 	index, err := bleve.NewUsing("", mapping, bleve.Config.DefaultIndexType, bleve.Config.DefaultMemKVStore, nil)
