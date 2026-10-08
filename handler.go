@@ -20,20 +20,22 @@ func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
 			mu                  sync.Mutex
 			previous            *catalog.Catalog
 			previousFingerprint string
+			previousToolSearch  bool
 		)
 		handler := func(ctx context.Context, method string, request mcp.Request) (mcp.Result, error) {
 			compiled, fingerprint, err := c.catalogForRequest(ctx, request)
 			if err != nil {
 				return nil, err
 			}
+			toolSearch := c.configForRequest(ctx, request).ToolSearch
 			if id, ok := ConfigIDFromContext(ctx); ok && request.GetSession().ID() == "" {
-				if cleanup := c.toolSubscriptions.observe(id, method, server, compiled, fingerprint); cleanup != nil {
+				if cleanup := c.toolSubscriptions.observe(id, method, server, compiled, fingerprint, toolSearch); cleanup != nil {
 					defer cleanup()
 				}
 			} else {
 				mu.Lock()
-				toolsChanged := previous != nil && previousFingerprint != fingerprint && !reflect.DeepEqual(previous.Tools(), compiled.Tools())
-				previous, previousFingerprint = compiled, fingerprint
+				toolsChanged := previous != nil && previousFingerprint != fingerprint && (previousToolSearch != toolSearch || !reflect.DeepEqual(previous.Tools(), compiled.Tools()))
+				previous, previousFingerprint, previousToolSearch = compiled, fingerprint, toolSearch
 				mu.Unlock()
 				if toolsChanged && method != "tools/list" {
 					notifyFeatureChanged(server, component.FeatureTools)
@@ -52,7 +54,12 @@ func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
 				if err != nil {
 					return nil, err
 				}
-				return &mcp.ListToolsResult{CacheScope: "public", Tools: values, NextCursor: nextCursor}, nil
+				// Available tools depend on the request's selected configuration.
+				return &mcp.ListToolsResult{
+					CacheScope: "private",
+					Tools:      values,
+					NextCursor: nextCursor,
+				}, nil
 			case "prompts/list":
 				req, ok := request.(*mcp.ListPromptsRequest)
 				if !ok {
@@ -131,15 +138,22 @@ func (c *Composite) callTool(ctx context.Context, request mcp.Request, compiled 
 	if !ok || req.Params == nil {
 		return nil, invalidRequest("tools/call")
 	}
-	route, ok := compiled.RouteTool(req.Params.Name)
+	call, ok, err := compiled.ResolveToolCall(ctx, req.Params.Name, req.Params.Arguments)
+	if err != nil {
+		return nil, err
+	}
 	if !ok {
 		return nil, unknown("tool", req.Params.Name)
 	}
-	ctx = component.ContextWithToolCall(ctx, route.Tool, req.Params.Arguments)
+	if call.Result != nil {
+		return normalizeCallToolResult(request, call.Result)
+	}
+	route := *call.Route
+	ctx = component.ContextWithToolCall(ctx, route.Tool, call.Arguments)
 	params := &mcp.CallToolParams{
 		Meta:           component.DownstreamMeta(req.Params.Meta),
 		Name:           route.Tool.Name,
-		Arguments:      req.Params.Arguments,
+		Arguments:      call.Arguments,
 		InputResponses: req.Params.InputResponses,
 		RequestState:   req.Params.RequestState,
 	}

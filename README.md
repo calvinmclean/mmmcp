@@ -18,6 +18,7 @@ component discovery, and final identity collisions stop startup.
 ```yaml
 name: company-mcp
 version: 1.0.0
+toolSearch: true
 listen: 127.0.0.1:8080
 idleTimeout: 30s
 servers:
@@ -75,6 +76,31 @@ or called. Without overrides, all discovered tools are available. Set the server
 `disableTools: true` to expose no tools, regardless of overrides. Prompts and
 resources are unaffected.
 
+`toolSearch` defaults to `false`, which lists and calls component tools directly.
+When `true`, it lists only `search_tools` and `call_tool` and rejects
+direct calls to component tools, even when their names are known. Search uses
+the same configured tool selection.
+
+Two tools are enabled when tool search is enabled:
+- `search_tools`: queries the available tools. Results contain the effective
+  tool definition, including its input schema. Results are ranked locally using
+  Bleve BM25 on tool names, descriptions, component names, and input parameters.
+  A renamed tool is indexed by its configured name, not its original name.
+  Pass a nonempty `query`, an optional positive `limit` (default 5), and an
+  optional zero-based `offset` (default 0). When `hasMore` is true, repeat the
+  query with `offset` increased by `limit` to get the next page.
+- `call_tool` accepts the returned tool's `name`, `revision`, and `arguments`. It
+  rechecks the current catalog on every call, returning `TOOL_UNAVAILABLE` for an
+  excluded or removed tool and `STALE_TOOL_REFERENCE` when the tool changed
+
+Search-enabled catalogs refresh when a component sends a tool-list change
+notification. The default catalog also refreshes when the composite is
+explicitly refreshed. Requests wait for an in-progress refresh, subject to
+their context deadline. If rediscovery fails, they return
+`CATALOG_UNAVAILABLE` instead of using the previous catalog. Components that
+do not send notifications remain unchanged in search results until an
+explicit default-catalog refresh or configuration change triggers rediscovery.
+
 Each server accepts an optional `discoveryRevision` string (default empty, not
 interpolated). Set it to a fresh revision to trigger rediscovery when the updated
 configuration is next used. It changes the complete configuration fingerprint,
@@ -97,8 +123,9 @@ the handler at another path.
 
 `GET /healthz` is a dependency-free liveness probe. `GET /readyz` checks the
 default catalog and pings the default event store with a short timeout. A
-failed catalog refresh reports `degraded` with HTTP 200 while the
-last-known-good catalog remains usable; an unavailable catalog or store returns
+failed catalog refresh reports `degraded` with HTTP 200. The
+last-known-good catalog remains usable in `off` mode; search-enabled catalogs
+return `CATALOG_UNAVAILABLE` until refresh succeeds. An unavailable catalog or store returns
 HTTP 503. Both
 endpoints support `HEAD`, disable caching, and expose stable reason codes rather
 than dependency errors or configuration values. Request-scoped configurations

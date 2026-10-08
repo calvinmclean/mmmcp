@@ -2,6 +2,7 @@ package catalog_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"sync/atomic"
@@ -12,6 +13,7 @@ import (
 	"github.com/obot-platform/mmmcp/catalog"
 	"github.com/obot-platform/mmmcp/component"
 	"github.com/obot-platform/mmmcp/config"
+	"github.com/obot-platform/mmmcp/toolsearch"
 )
 
 type featureDiscoverer struct {
@@ -279,6 +281,98 @@ func TestCompileMultipleServersAddsPrefixes(t *testing.T) {
 	got := compiled.Tools()
 	if len(got) != 2 || got[0].Name != "first_server__search" || got[1].Name != "second_server__search" {
 		t.Fatalf("tools = %+v", got)
+	}
+}
+
+func TestCompileDuplicateComponentNamesUseExposedToolNames(t *testing.T) {
+	discoverer := featureDiscoverer{features: map[string]*component.Features{
+		"shared": {
+			Tools: []*mcp.Tool{
+				{
+					Name:        "lookup",
+					Description: "Find invoices",
+					InputSchema: map[string]any{
+						"type": "object",
+					},
+				},
+			},
+		},
+	}}
+	cfg := &config.Config{
+		Servers: []config.Server{
+			{
+				Name:   "shared",
+				Prefix: "first",
+				URL:    "https://first.invalid",
+			},
+			{
+				Name:   "shared",
+				Prefix: "second",
+				URL:    "https://second.invalid",
+				Tools: []config.ToolOverride{
+					{
+						Name:         "lookup",
+						OverrideName: "find",
+						Enabled:      true,
+					},
+				},
+			},
+		},
+	}
+
+	compiled, err := catalog.Compile(t.Context(), cfg, discoverer)
+	if err != nil {
+		t.Fatalf("direct mode should allow duplicate component names with distinct prefixes: %v", err)
+	}
+	for exposedName, prefix := range map[string]string{
+		"first__lookup": "first",
+		"second__find":  "second",
+	} {
+		route, ok := compiled.RouteTool(exposedName)
+		if !ok || route.Component.Prefix != prefix || route.Tool.Name != "lookup" {
+			t.Fatalf("tool route for %q = %+v, %v", exposedName, route, ok)
+		}
+	}
+
+	cfg.ToolSearch = true
+	compiled, err = catalog.Compile(t.Context(), cfg, discoverer)
+	if err != nil {
+		t.Fatalf("search mode should allow distinct exposed tool names: %v", err)
+	}
+
+	hits, err := searchCatalog(t.Context(), compiled, "invoices", 5, 0)
+	if err != nil || len(hits.Tools) != 2 {
+		t.Fatalf("search results = %+v, %v", hits, err)
+	}
+
+	found := make(map[string]bool)
+	for _, hit := range hits.Tools {
+		found[hit.Reference.Name] = true
+		arguments, err := json.Marshal(toolsearch.CallArguments{
+			Name:     hit.Reference.Name,
+			Revision: hit.Revision,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		call, ok, err := compiled.ResolveToolCall(t.Context(), toolsearch.CallToolName, arguments)
+		if err != nil || !ok || call.Route == nil || call.Route.Tool.Name != "lookup" {
+			t.Fatalf("generic call for %q = %+v, %v, %v", hit.Reference.Name, call, ok, err)
+		}
+	}
+	if !found["first__lookup"] || !found["second__find"] {
+		t.Fatalf("search references = %+v", hits.Tools)
+	}
+
+	for exposedName, url := range map[string]string{
+		"first__lookup": "https://first.invalid",
+		"second__find":  "https://second.invalid",
+	} {
+		ref := toolsearch.Reference{Name: exposedName}
+		route, _, ok := compiled.RouteReference(ref)
+		if !ok || route.Component.URL != url || route.Tool.Name != "lookup" {
+			t.Fatalf("reference route for %q = %+v, %v", exposedName, route, ok)
+		}
 	}
 }
 

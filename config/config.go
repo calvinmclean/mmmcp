@@ -6,8 +6,10 @@ import (
 
 // Config is a complete composite server configuration.
 type Config struct {
-	Name        string
-	Version     string
+	Name    string
+	Version string
+	// ToolSearch exposes only search and generic call tools when enabled.
+	ToolSearch  bool
 	Listen      string
 	IdleTimeout time.Duration
 	Servers     []Server
@@ -77,6 +79,7 @@ type ResourceTemplateOverride struct {
 type configDTO struct {
 	Name        string        `yaml:"name"`
 	Version     string        `yaml:"version"`
+	ToolSearch  bool          `yaml:"toolSearch"`
 	Listen      string        `yaml:"listen"`
 	IdleTimeout durationValue `yaml:"idleTimeout"`
 	Servers     []serverDTO   `yaml:"servers"`

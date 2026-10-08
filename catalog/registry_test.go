@@ -2,9 +2,11 @@ package catalog_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/obot-platform/mmmcp/catalog"
@@ -18,6 +20,18 @@ type countingDiscoverer struct {
 	started chan struct{}
 	release chan struct{}
 	once    sync.Once
+	err     error
+}
+
+type observedDoneContext struct {
+	context.Context
+	observed chan struct{}
+	once     sync.Once
+}
+
+func (c *observedDoneContext) Done() <-chan struct{} {
+	c.once.Do(func() { close(c.observed) })
+	return c.Context.Done()
 }
 
 func TestFingerprintIsStableCompleteAndSecretSafe(t *testing.T) {
@@ -109,12 +123,113 @@ func TestRegistryDeduplicatesConcurrentCompilation(t *testing.T) {
 	}
 }
 
+func TestRegistryWaitersReturnInitialCompilationError(t *testing.T) {
+	failure := errors.New("discovery failed")
+	discoverer := &countingDiscoverer{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+		err:     failure,
+	}
+	defer func() {
+		select {
+		case <-discoverer.release:
+		default:
+			close(discoverer.release)
+		}
+	}()
+	registry := catalog.NewRegistry(discoverer)
+	defer registry.Close()
+	cfg := &config.Config{ToolSearch: true, Servers: []config.Server{{
+		Name: "fixture",
+		URL:  "https://example.invalid",
+	}}}
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, _, err := registry.Get(t.Context(), cfg)
+		firstDone <- err
+	}()
+	<-discoverer.started
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	waiterCtx := &observedDoneContext{Context: ctx, observed: make(chan struct{})}
+	waiterDone := make(chan error, 1)
+	go func() {
+		_, _, err := registry.Get(waiterCtx, cfg)
+		waiterDone <- err
+	}()
+	select {
+	case <-waiterCtx.observed:
+	case <-time.After(time.Second):
+		t.Fatal("second caller did not wait for initial compilation")
+	}
+	close(discoverer.release)
+
+	for _, done := range []<-chan error{firstDone, waiterDone} {
+		select {
+		case err := <-done:
+			if !errors.Is(err, failure) {
+				t.Fatalf("initial compilation returned %v, want %v", err, failure)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("caller remained blocked after initial compilation failed")
+		}
+	}
+	if got := discoverer.Count(); got != 1 {
+		t.Fatalf("discoveries = %d, want 1", got)
+	}
+}
+
+func TestRegistryCloseDuringInitialCompilation(t *testing.T) {
+	const attempts = 32
+	for range attempts {
+		discoverer := &countingDiscoverer{started: make(chan struct{}), release: make(chan struct{})}
+		registry := catalog.NewRegistry(discoverer)
+		cfg := &config.Config{
+			ToolSearch: true,
+			Servers:    []config.Server{{Name: "fixture", URL: "https://example.invalid"}},
+		}
+
+		getDone := make(chan error, 1)
+		go func() {
+			_, _, err := registry.Get(t.Context(), cfg)
+			getDone <- err
+		}()
+		<-discoverer.started
+
+		closeDone := make(chan struct{})
+		go func() {
+			registry.Close()
+			close(closeDone)
+		}()
+		close(discoverer.release)
+
+		select {
+		case err := <-getDone:
+			if err != nil {
+				t.Fatalf("initial compilation after Close: %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("initial compilation did not finish")
+		}
+		select {
+		case <-closeDone:
+		case <-time.After(time.Second):
+			t.Fatal("Close did not finish")
+		}
+	}
+}
+
 func (d *countingDiscoverer) Discover(context.Context, config.Server) (*component.Features, error) {
 	d.mu.Lock()
 	d.count++
 	d.mu.Unlock()
 	d.once.Do(func() { close(d.started) })
 	<-d.release
+	if d.err != nil {
+		return nil, d.err
+	}
 	return &component.Features{Tools: []*mcp.Tool{{Name: "tool", InputSchema: map[string]any{"type": "object"}}}}, nil
 }
 

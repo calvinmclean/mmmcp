@@ -18,6 +18,41 @@ func TestLoadDisableTools(t *testing.T) {
 	}
 }
 
+func TestLoadToolSearch(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		setting string
+		want    bool
+	}{
+		{
+			name: "default",
+		},
+		{
+			name:    "enabled",
+			setting: "toolSearch: true\n",
+			want:    true,
+		},
+		{
+			name:    "disabled",
+			setting: "toolSearch: false\n",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg, err := Load([]byte(test.setting+"servers:\n  - name: gh\n    url: https://example.invalid\n"), LoadOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.ToolSearch != test.want {
+				t.Fatalf("toolSearch = %t, want %t", cfg.ToolSearch, test.want)
+			}
+		})
+	}
+
+	if _, err := Load([]byte("toolSearch: search\nservers:\n  - name: gh\n    url: https://example.invalid\n"), LoadOptions{}); err == nil {
+		t.Fatal("non-boolean toolSearch was accepted")
+	}
+}
+
 func TestLoadStrictInterpolationAndDefaults(t *testing.T) {
 	env := map[string]string{
 		"TOKEN": "secret",

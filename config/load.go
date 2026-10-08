@@ -78,6 +78,7 @@ func (d configDTO) runtime(lookup func(string) (string, bool)) (*Config, error) 
 	cfg := &Config{
 		Name:        strings.TrimSpace(d.Name),
 		Version:     strings.TrimSpace(d.Version),
+		ToolSearch:  d.ToolSearch,
 		Listen:      d.Listen,
 		IdleTimeout: d.IdleTimeout.runtime(),
 	}

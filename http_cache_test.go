@@ -12,7 +12,7 @@ import (
 	"github.com/obot-platform/mmmcp/config"
 )
 
-func TestCurrentProtocolListResultsArePubliclyCacheableAndImmediatelyStale(t *testing.T) {
+func TestCurrentProtocolListResultsHaveAppropriateCacheScopeAndAreImmediatelyStale(t *testing.T) {
 	fixture := namedToolFixture(t, "ok")
 	composite, err := mmmcp.New(t.Context(), &config.Config{
 		Servers: []config.Server{{Name: "fixture", URL: fixture.URL}},
@@ -68,7 +68,11 @@ func TestCurrentProtocolListResultsArePubliclyCacheableAndImmediatelyStale(t *te
 		if err := json.Unmarshal(responseBody, &message); err != nil {
 			t.Fatalf("%s response decode: %v; body = %s", method, err, responseBody)
 		}
-		if message.Result.CacheScope != "public" || message.Result.TTLMs == nil || *message.Result.TTLMs != 0 {
+		wantScope := "public"
+		if method == "tools/list" {
+			wantScope = "private"
+		}
+		if message.Result.CacheScope != wantScope || message.Result.TTLMs == nil || *message.Result.TTLMs != 0 {
 			t.Fatalf("%s caching = scope %q, ttl %v; body = %s", method, message.Result.CacheScope, message.Result.TTLMs, responseBody)
 		}
 	}

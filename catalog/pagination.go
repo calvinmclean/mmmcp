@@ -70,13 +70,13 @@ func invalidCursor() error {
 	return &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "invalid or expired catalog cursor"}
 }
 
-// PageTools returns one stable page of tools.
+// PageTools returns one stable page of tools visible in this catalog's configured mode.
 func (c *Catalog) PageTools(cursor string, pageSize int) ([]*mcp.Tool, string, error) {
-	start, end, next, err := c.page(FamilyTools, toolNames(c.tools), cursor, pageSize)
+	start, end, next, err := c.page(FamilyTools, toolNames(c.visibleTools), cursor, pageSize)
 	if err != nil {
 		return nil, "", err
 	}
-	return append([]*mcp.Tool{}, c.tools[start:end]...), next, nil
+	return append([]*mcp.Tool{}, c.visibleTools[start:end]...), next, nil
 }
 
 // PagePrompts returns one stable page of prompts.

@@ -3,6 +3,7 @@ package mmmcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"sync"
@@ -107,6 +108,20 @@ func New(ctx context.Context, cfg *config.Config, opts Options) (*Composite, err
 
 // HTTPHandler returns the Streamable HTTP MCP, health, and readiness handler.
 func (c *Composite) HTTPHandler() http.Handler { return c.handler }
+
+// ResolveToolCall resolves a call against the same current catalog used by the
+// frontend. Callers can use the result for policy checks before forwarding the
+// request; the frontend resolves the call again before invoking a component.
+func (c *Composite) ResolveToolCall(ctx context.Context, cfg *config.Config, name string, arguments json.RawMessage) (catalog.ResolvedToolCall, bool, error) {
+	if c == nil || c.closed.Load() {
+		return catalog.ResolvedToolCall{}, false, errors.New("mmmcp: composite server is closed")
+	}
+	compiled, _, err := c.registry.Get(ctx, cfg)
+	if err != nil {
+		return catalog.ResolvedToolCall{}, false, err
+	}
+	return compiled.ResolveToolCall(ctx, name, arguments)
+}
 
 // Refresh recompiles the default configuration's immutable catalog.
 func (c *Composite) Refresh(ctx context.Context) error {
