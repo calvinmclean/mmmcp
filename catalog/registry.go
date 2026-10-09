@@ -14,7 +14,8 @@ import (
 )
 
 const (
-	refreshDebounce = 10 * time.Millisecond
+	refreshDebounce     = 10 * time.Millisecond
+	missRefreshInterval = 10 * time.Second
 )
 
 var (
@@ -44,6 +45,10 @@ type registryEntry struct {
 	callbacks   []func(bool)
 	stale       bool
 	refreshDone chan struct{}
+	// A rejected generic call may trigger discovery once per interval. A failed
+	// attempt also delays stale-catalog retries so requests fail closed cheaply.
+	missRefreshNextAt  time.Time
+	missRefreshRetryAt time.Time
 }
 
 // NewRegistry creates a catalog registry.
@@ -129,6 +134,11 @@ func (r *Registry) waitForCatalog(ctx context.Context, fingerprint string, entry
 		if r.closed {
 			return nil, nil, context.Canceled
 		}
+		// Fail fast during miss backoff unless a refresh is already running or
+		// scheduled by a notification.
+		if !entry.refreshing && entry.timer == nil && entry.refreshDone == nil && time.Now().Before(entry.missRefreshRetryAt) {
+			return nil, nil, ErrCatalogUnavailable
+		}
 		if entry.refreshDone == nil {
 			entry.refreshDone = make(chan struct{})
 		}
@@ -155,42 +165,81 @@ func (r *Registry) waitForCatalog(ctx context.Context, fingerprint string, entry
 	return current.catalog, current.err
 }
 
+// RefreshOnMiss bounds rediscovery caused by unresolved generic calls for one
+// configuration. Other callers use the cached snapshot or wait for a refresh
+// already in progress. A changed configuration has its own fingerprint.
+func (r *Registry) RefreshOnMiss(ctx context.Context, cfg *config.Config) (*Catalog, error) {
+	compiled, _, refreshed, err := r.refresh(ctx, cfg, true)
+	if err != nil || refreshed {
+		return compiled, err
+	}
+	compiled, _, err = r.Get(ctx, cfg)
+	return compiled, err
+}
+
 // Refresh recompiles cfg and replaces its cached catalog only after success.
+// For an existing search catalog, ctx limits the caller's wait, while discovery
+// keeps the caller's values but runs until the registry closes.
 func (r *Registry) Refresh(ctx context.Context, cfg *config.Config) (*Catalog, string, error) {
+	compiled, fingerprint, _, err := r.refresh(ctx, cfg, false)
+	return compiled, fingerprint, err
+}
+
+// refresh implements Refresh. For a miss, it reports false without discovery
+// when the configuration is uncached or its miss interval has not elapsed. The
+// interval is consumed only once this caller starts discovery, so a caller that
+// stops waiting for an earlier refresh leaves it available.
+func (r *Registry) refresh(ctx context.Context, cfg *config.Config, miss bool) (*Catalog, string, bool, error) {
 	fingerprint, err := Fingerprint(cfg)
 	if err != nil {
-		return nil, "", err
+		return nil, "", false, err
 	}
 	var current *registryEntry
 	// Search catalogs must be marked stale before discovery so Get waits for this
-	// refresh. Wait for any initial compile or earlier refresh to finish first.
-	if cfg.ToolSearch {
+	// refresh. Wait for any initial compile or earlier refresh to finish first. A
+	// miss that waited on another refresh reuses its result instead of starting
+	// another discovery.
+	if cfg.ToolSearch || miss {
+		waitedForRefresh := false
 		for {
-			done, err := func() (<-chan struct{}, error) {
+			done, skip, err := func() (<-chan struct{}, bool, error) {
 				r.mu.Lock()
 				defer r.mu.Unlock()
 				if r.closed {
-					return nil, context.Canceled
+					return nil, false, context.Canceled
+				}
+				if err := ctx.Err(); err != nil {
+					return nil, false, err
 				}
 				current = r.entries[fingerprint]
 				if current == nil {
-					return nil, nil
+					return nil, miss, nil
+				}
+				if !cfg.ToolSearch {
+					return nil, !reserveMissRefresh(current), nil
 				}
 				select {
 				case <-current.ready:
+					if miss && waitedForRefresh {
+						return nil, true, nil
+					}
 					if current.refreshDone != nil {
-						return current.refreshDone, nil
+						waitedForRefresh = true
+						return current.refreshDone, false, nil
+					}
+					if miss && !reserveMissRefresh(current) {
+						return nil, true, nil
 					}
 					current.stale = true
 					current.refreshing = true
 					current.refreshDone = make(chan struct{})
-					return nil, nil
+					return nil, false, nil
 				default:
-					return current.ready, nil
+					return current.ready, false, nil
 				}
 			}()
-			if err != nil {
-				return nil, fingerprint, err
+			if err != nil || skip {
+				return nil, fingerprint, false, err
 			}
 			if done == nil {
 				break
@@ -198,22 +247,15 @@ func (r *Registry) Refresh(ctx context.Context, cfg *config.Config) (*Catalog, s
 			select {
 			case <-done:
 			case <-ctx.Done():
-				return nil, fingerprint, ctx.Err()
+				return nil, fingerprint, false, ctx.Err()
 			}
 		}
 	}
-	compiled, err := compile(ctx, cfg, r.discoverer)
-	// Complete the search refresh on the same entry that Get is waiting on.
-	// Keep it stale after failure or while a notification refresh is pending.
 	if cfg.ToolSearch && current != nil {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		if r.closed {
-			return nil, fingerprint, context.Canceled
-		}
-		r.finishRefresh(fingerprint, current, compiled, err)
-		return compiled, fingerprint, err
+		compiled, err := r.refreshSearchCatalog(ctx, fingerprint, current)
+		return compiled, fingerprint, true, err
 	}
+	compiled, err := compile(ctx, cfg, r.discoverer)
 	if err != nil {
 		if cfg.ToolSearch {
 			r.mu.Lock()
@@ -222,7 +264,7 @@ func (r *Registry) Refresh(ctx context.Context, cfg *config.Config) (*Catalog, s
 				entry.stale = true
 			}
 		}
-		return nil, fingerprint, err
+		return nil, fingerprint, true, err
 	}
 	entry := &registryEntry{
 		ready:   make(chan struct{}),
@@ -235,6 +277,9 @@ func (r *Registry) Refresh(ctx context.Context, cfg *config.Config) (*Catalog, s
 		r.mu.Lock()
 		defer r.mu.Unlock()
 		old := r.entries[fingerprint]
+		if old != nil {
+			entry.missRefreshNextAt = old.missRefreshNextAt
+		}
 		r.entries[fingerprint] = entry
 		if old != nil && old.refreshDone != nil {
 			close(old.refreshDone)
@@ -245,16 +290,72 @@ func (r *Registry) Refresh(ctx context.Context, cfg *config.Config) (*Catalog, s
 	if old != nil {
 		old.catalog.StopSearchIndex()
 	}
-	return compiled, fingerprint, nil
+	return compiled, fingerprint, true, nil
+}
+
+// reserveMissRefresh consumes entry's miss interval when it has elapsed. The
+// caller holds r.mu.
+func reserveMissRefresh(entry *registryEntry) bool {
+	if time.Now().Before(entry.missRefreshNextAt) {
+		return false
+	}
+	entry.missRefreshNextAt = time.Now().Add(missRefreshInterval)
+	entry.missRefreshRetryAt = entry.missRefreshNextAt
+	return true
+}
+
+// refreshSearchCatalog completes shared discovery even if the caller stops
+// waiting. Only the worker publishes discovery success or failure to the entry.
+func (r *Registry) refreshSearchCatalog(ctx context.Context, fingerprint string, entry *registryEntry) (*Catalog, error) {
+	cfg := func() *config.Config {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		return entry.config
+	}()
+	// Discovery outlives the caller but keeps its values, as they carry the
+	// credentials components authenticate with. Closing the registry stops it.
+	discoveryCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	stop := context.AfterFunc(r.ctx, cancel)
+
+	type result struct {
+		catalog *Catalog
+		err     error
+	}
+	done := make(chan result, 1)
+	go func() {
+		defer cancel()
+		defer stop()
+		compiled, err := compile(discoveryCtx, cfg, r.discoverer)
+		done <- func() result {
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			if r.closed {
+				return result{err: context.Canceled}
+			}
+			if r.entries[fingerprint] != entry {
+				return result{err: ErrCatalogUnavailable}
+			}
+			r.finishRefresh(fingerprint, entry, compiled, err)
+			return result{catalog: compiled, err: err}
+		}()
+	}()
+	select {
+	case completed := <-done:
+		return completed.catalog, completed.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-r.ctx.Done():
+		return nil, context.Canceled
+	}
 }
 
 // RequestRefresh debounces a full rediscovery for fingerprint. A failed
 // refresh leaves the previous immutable snapshot installed.
 func (r *Registry) RequestRefresh(fingerprint string, callback func(bool)) {
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	entry := r.entries[fingerprint]
 	if r.closed || entry == nil || entry.config == nil {
-		r.mu.Unlock()
 		return
 	}
 	if callback != nil {
@@ -268,7 +369,6 @@ func (r *Registry) RequestRefresh(fingerprint string, callback func(bool)) {
 	}
 	if entry.refreshing {
 		entry.pending = true
-		r.mu.Unlock()
 		return
 	}
 	if entry.timer == nil {
@@ -276,36 +376,37 @@ func (r *Registry) RequestRefresh(fingerprint string, callback func(bool)) {
 	} else {
 		entry.timer.Reset(refreshDebounce)
 	}
-	r.mu.Unlock()
 }
 
 func (r *Registry) runRefresh(fingerprint string) {
-	r.mu.Lock()
-	entry := r.entries[fingerprint]
-	if r.closed || entry == nil || entry.refreshing {
-		r.mu.Unlock()
+	entry, cfg, callbacks := func() (*registryEntry, *config.Config, []func(bool)) {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		entry := r.entries[fingerprint]
+		if r.closed || entry == nil || entry.refreshing {
+			return nil, nil, nil
+		}
+		entry.timer = nil
+		entry.refreshing = true
+		entry.pending = false
+		callbacks := entry.callbacks
+		entry.callbacks = nil
+		return entry, entry.config, callbacks
+	}()
+	if entry == nil {
 		return
 	}
-	entry.timer = nil
-	entry.refreshing = true
-	entry.pending = false
-	cfg := entry.config
-	callbacks := entry.callbacks
-	entry.callbacks = nil
-	r.mu.Unlock()
 
 	compiled, err := compile(r.ctx, cfg, r.discoverer)
 
-	r.mu.Lock()
-	if r.entries[fingerprint] != entry {
-		r.mu.Unlock()
-		for _, callback := range callbacks {
-			callback(err == nil)
+	func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if r.entries[fingerprint] != entry {
+			return
 		}
-		return
-	}
-	r.finishRefresh(fingerprint, entry, compiled, err)
-	r.mu.Unlock()
+		r.finishRefresh(fingerprint, entry, compiled, err)
+	}()
 	for _, callback := range callbacks {
 		callback(err == nil)
 	}
@@ -315,11 +416,15 @@ func (r *Registry) runRefresh(fingerprint string) {
 // no further notification refresh is pending. The caller holds r.mu.
 func (r *Registry) finishRefresh(fingerprint string, entry *registryEntry, compiled *Catalog, err error) {
 	if err == nil {
+		entry.missRefreshRetryAt = time.Time{}
 		compiled.StartSearchIndex(r.ctx)
 		old := entry.catalog
 		entry.catalog = compiled
 		entry.err = nil
 		old.StopSearchIndex()
+	} else if !entry.missRefreshRetryAt.IsZero() {
+		entry.missRefreshNextAt = time.Now().Add(missRefreshInterval)
+		entry.missRefreshRetryAt = entry.missRefreshNextAt
 	}
 	entry.refreshing = false
 	pending := entry.pending
@@ -342,6 +447,7 @@ func (r *Registry) Close() {
 		return
 	}
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.closed = true
 	r.cancel()
 	for _, entry := range r.entries {
@@ -355,7 +461,6 @@ func (r *Registry) Close() {
 			entry.timer = nil
 		}
 	}
-	r.mu.Unlock()
 }
 
 func canonicalConfig(cfg config.Config) config.Config {
