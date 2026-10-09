@@ -723,6 +723,46 @@ func TestSearchNotificationDuringMissRefreshBlocksReaders(t *testing.T) {
 	}
 }
 
+func TestSearchMissCallerWaitsForNotificationRefresh(t *testing.T) {
+	d := &blockedRefreshDiscoverer{started: make(chan struct{}), release: make(chan struct{})}
+	r := catalog.NewRegistry(d)
+	defer r.Close()
+	var release sync.Once
+	defer release.Do(func() { close(d.release) })
+	cfg := &config.Config{ToolSearch: true, Servers: []config.Server{{Name: "fixture", URL: "https://example.invalid"}}}
+	_, fingerprint, err := r.Get(t.Context(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	missed := make(chan error, 1)
+	go func() {
+		_, err := r.RefreshOnMiss(t.Context(), cfg)
+		missed <- err
+	}()
+	select {
+	case <-d.started:
+	case <-time.After(time.Second):
+		t.Fatal("miss refresh did not start")
+	}
+	r.RequestRefresh(fingerprint, nil)
+	release.Do(func() { close(d.release) })
+
+	select {
+	case err := <-missed:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("miss caller did not resume")
+	}
+	d.mu.Lock()
+	calls := d.calls
+	d.mu.Unlock()
+	if calls != 3 {
+		t.Fatalf("discoveries = %d when the miss caller resumed, want 3; it received the catalog the notification made stale", calls)
+	}
+}
+
 func TestSearchRefreshKeepsCallerValues(t *testing.T) {
 	for _, miss := range []bool{false, true} {
 		name := "explicit"
