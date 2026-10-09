@@ -45,10 +45,11 @@ type registryEntry struct {
 	callbacks   []func(bool)
 	stale       bool
 	refreshDone chan struct{}
-	// A rejected generic call may trigger discovery once per interval. A failed
-	// attempt also delays stale-catalog retries so requests fail closed cheaply.
-	missRefreshNextAt  time.Time
-	missRefreshRetryAt time.Time
+	// A rejected generic call may trigger discovery once per interval. Unlike a
+	// notification, a miss does not prove the catalog is stale, so readers keep
+	// the current snapshot and only callers that missed wait on missDone.
+	missRefreshNextAt time.Time
+	missDone          chan struct{}
 }
 
 // NewRegistry creates a catalog registry.
@@ -134,11 +135,6 @@ func (r *Registry) waitForCatalog(ctx context.Context, fingerprint string, entry
 		if r.closed {
 			return nil, nil, context.Canceled
 		}
-		// Fail fast during miss backoff unless a refresh is already running or
-		// scheduled by a notification.
-		if !entry.refreshing && entry.timer == nil && entry.refreshDone == nil && time.Now().Before(entry.missRefreshRetryAt) {
-			return nil, nil, ErrCatalogUnavailable
-		}
 		if entry.refreshDone == nil {
 			entry.refreshDone = make(chan struct{})
 		}
@@ -166,12 +162,17 @@ func (r *Registry) waitForCatalog(ctx context.Context, fingerprint string, entry
 }
 
 // RefreshOnMiss bounds rediscovery caused by unresolved generic calls for one
-// configuration. Other callers use the cached snapshot or wait for a refresh
-// already in progress. A changed configuration has its own fingerprint.
+// configuration. Other callers keep using the cached snapshot while it runs,
+// and callers that also missed wait for it. If discovery fails or is skipped,
+// the current snapshot is returned. A changed configuration has its own
+// fingerprint.
 func (r *Registry) RefreshOnMiss(ctx context.Context, cfg *config.Config) (*Catalog, error) {
 	compiled, _, refreshed, err := r.refresh(ctx, cfg, true)
-	if err != nil || refreshed {
-		return compiled, err
+	if refreshed && err == nil {
+		return compiled, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	compiled, _, err = r.Get(ctx, cfg)
 	return compiled, err
@@ -195,9 +196,10 @@ func (r *Registry) refresh(ctx context.Context, cfg *config.Config, miss bool) (
 		return nil, "", false, err
 	}
 	var current *registryEntry
-	// Search catalogs must be marked stale before discovery so Get waits for this
-	// refresh. Wait for any initial compile or earlier refresh to finish first. A
-	// miss that waited on another refresh reuses its result instead of starting
+	// An explicit search refresh marks the catalog stale before discovery so Get
+	// waits for it. A miss does not, so Get keeps serving the current snapshot.
+	// Wait for any initial compile or earlier refresh to finish first. A miss
+	// that waited on another refresh reuses its result instead of starting
 	// another discovery.
 	if cfg.ToolSearch || miss {
 		waitedForRefresh := false
@@ -227,12 +229,20 @@ func (r *Registry) refresh(ctx context.Context, cfg *config.Config, miss bool) (
 						waitedForRefresh = true
 						return current.refreshDone, false, nil
 					}
+					if current.missDone != nil {
+						waitedForRefresh = true
+						return current.missDone, false, nil
+					}
 					if miss && !reserveMissRefresh(current) {
 						return nil, true, nil
 					}
-					current.stale = true
 					current.refreshing = true
-					current.refreshDone = make(chan struct{})
+					if miss {
+						current.missDone = make(chan struct{})
+					} else {
+						current.stale = true
+						current.refreshDone = make(chan struct{})
+					}
 					return nil, false, nil
 				default:
 					return current.ready, false, nil
@@ -285,6 +295,10 @@ func (r *Registry) refresh(ctx context.Context, cfg *config.Config, miss bool) (
 			close(old.refreshDone)
 			old.refreshDone = nil
 		}
+		if old != nil && old.missDone != nil {
+			close(old.missDone)
+			old.missDone = nil
+		}
 		return old
 	}()
 	if old != nil {
@@ -300,7 +314,6 @@ func reserveMissRefresh(entry *registryEntry) bool {
 		return false
 	}
 	entry.missRefreshNextAt = time.Now().Add(missRefreshInterval)
-	entry.missRefreshRetryAt = entry.missRefreshNextAt
 	return true
 }
 
@@ -413,24 +426,26 @@ func (r *Registry) runRefresh(fingerprint string) {
 }
 
 // finishRefresh installs a successful snapshot and releases Get waiters once
-// no further notification refresh is pending. The caller holds r.mu.
+// no further notification refresh is pending. A failure leaves a catalog stale
+// only if it already was, so a failed miss refresh keeps serving the previous
+// snapshot. The caller holds r.mu.
 func (r *Registry) finishRefresh(fingerprint string, entry *registryEntry, compiled *Catalog, err error) {
 	if err == nil {
-		entry.missRefreshRetryAt = time.Time{}
 		compiled.StartSearchIndex(r.ctx)
 		old := entry.catalog
 		entry.catalog = compiled
 		entry.err = nil
 		old.StopSearchIndex()
-	} else if !entry.missRefreshRetryAt.IsZero() {
-		entry.missRefreshNextAt = time.Now().Add(missRefreshInterval)
-		entry.missRefreshRetryAt = entry.missRefreshNextAt
 	}
 	entry.refreshing = false
+	if entry.missDone != nil {
+		close(entry.missDone)
+		entry.missDone = nil
+	}
 	pending := entry.pending
 	entry.pending = false
 	if entry.config.ToolSearch {
-		entry.stale = pending || err != nil
+		entry.stale = pending || (err != nil && entry.stale)
 		if !pending && entry.refreshDone != nil {
 			close(entry.refreshDone)
 			entry.refreshDone = nil
@@ -455,6 +470,10 @@ func (r *Registry) Close() {
 		if entry.refreshDone != nil {
 			close(entry.refreshDone)
 			entry.refreshDone = nil
+		}
+		if entry.missDone != nil {
+			close(entry.missDone)
+			entry.missDone = nil
 		}
 		if entry.timer != nil {
 			entry.timer.Stop()

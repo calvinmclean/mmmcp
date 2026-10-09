@@ -437,18 +437,26 @@ func TestSearchRefreshOutlivesCaller(t *testing.T) {
 				}
 				discoveryCtx := <-d.discoveryContext
 				waiter := make(chan error, 1)
-				observed := &observedDoneContext{Context: t.Context(), observed: make(chan struct{})}
-				go func() {
-					compiled, _, err := r.Get(observed, cfg)
-					if err == nil && compiled.Tools()[0].Name != "second" {
-						err = errors.New("waiter received old catalog")
+				if miss {
+					// A miss does not mark the catalog stale, so readers keep the snapshot.
+					compiled, _, err := r.Get(t.Context(), cfg)
+					if err != nil || compiled.Tools()[0].Name != "first" {
+						t.Fatalf("reader during miss refresh = %v, %v; want current snapshot", compiled, err)
 					}
-					waiter <- err
-				}()
-				select {
-				case <-observed.observed:
-				case <-time.After(time.Second):
-					t.Fatal("catalog waiter did not start")
+				} else {
+					observed := &observedDoneContext{Context: t.Context(), observed: make(chan struct{})}
+					go func() {
+						compiled, _, err := r.Get(observed, cfg)
+						if err == nil && compiled.Tools()[0].Name != "second" {
+							err = errors.New("waiter received old catalog")
+						}
+						waiter <- err
+					}()
+					select {
+					case <-observed.observed:
+					case <-time.After(time.Second):
+						t.Fatal("catalog waiter did not start")
+					}
 				}
 				if !deadline {
 					cancel()
@@ -473,21 +481,24 @@ func TestSearchRefreshOutlivesCaller(t *testing.T) {
 				default:
 				}
 				release.Do(func() { close(d.release) })
-				select {
-				case err := <-waiter:
-					if err != nil {
-						t.Fatal(err)
+				if miss {
+					// A later miss reuses the detached discovery's result.
+					compiled, err := r.RefreshOnMiss(t.Context(), cfg)
+					if err != nil || compiled.Tools()[0].Name != "second" {
+						t.Fatalf("subsequent miss = %v, %v; want refreshed catalog", compiled, err)
 					}
-				case <-time.After(time.Second):
-					t.Fatal("catalog waiter did not resume")
+				} else {
+					select {
+					case err := <-waiter:
+						if err != nil {
+							t.Fatal(err)
+						}
+					case <-time.After(time.Second):
+						t.Fatal("catalog waiter did not resume")
+					}
 				}
 				if _, _, err := r.Get(t.Context(), cfg); err != nil {
 					t.Fatalf("healthy next caller: %v", err)
-				}
-				if miss {
-					if _, err := r.RefreshOnMiss(t.Context(), cfg); err != nil {
-						t.Fatalf("subsequent miss: %v", err)
-					}
 				}
 				calls := func() int {
 					d.mu.Lock()
@@ -572,29 +583,143 @@ func TestSearchDetachedRefreshStopsOnClose(t *testing.T) {
 	}
 }
 
-func TestSearchMissRefreshRetainsBackoffForDiscoveryErrors(t *testing.T) {
-	for _, failure := range []error{errors.New("downstream unavailable"), context.DeadlineExceeded, context.Canceled} {
-		t.Run(failure.Error(), func(t *testing.T) {
-			d := &mutableDiscoverer{name: "fixture"}
-			r := catalog.NewRegistry(d)
-			defer r.Close()
-			cfg := &config.Config{ToolSearch: true, Servers: []config.Server{{Name: "fixture", URL: "https://example.invalid"}}}
-			if _, _, err := r.Get(t.Context(), cfg); err != nil {
-				t.Fatal(err)
+func TestMissRefreshFailureKeepsSnapshot(t *testing.T) {
+	for _, toolSearch := range []bool{false, true} {
+		for _, failure := range []error{errors.New("downstream unavailable"), context.DeadlineExceeded, context.Canceled} {
+			name := "plain/"
+			if toolSearch {
+				name = "search/"
 			}
-			d.set("fixture", failure)
-			if _, err := r.RefreshOnMiss(t.Context(), cfg); !errors.Is(err, failure) {
-				t.Fatalf("refresh error = %v, want %v", err, failure)
-			}
-			for range 3 {
-				if _, _, err := r.Get(t.Context(), cfg); !errors.Is(err, catalog.ErrCatalogUnavailable) {
-					t.Fatalf("Get error = %v, want unavailable", err)
+			t.Run(name+failure.Error(), func(t *testing.T) {
+				d := &mutableDiscoverer{name: "fixture"}
+				r := catalog.NewRegistry(d)
+				defer r.Close()
+				cfg := &config.Config{ToolSearch: toolSearch, Servers: []config.Server{{Name: "fixture", URL: "https://example.invalid"}}}
+				if _, _, err := r.Get(t.Context(), cfg); err != nil {
+					t.Fatal(err)
 				}
-			}
-			if d.countValue() != 2 {
-				t.Fatal("discovery failure did not retain backoff")
-			}
-		})
+				d.set("missing", failure)
+				compiled, err := r.RefreshOnMiss(t.Context(), cfg)
+				if err != nil || compiled == nil {
+					t.Fatalf("failed miss refresh = %v, %v; want current snapshot", compiled, err)
+				}
+				for range 3 {
+					if _, err := r.RefreshOnMiss(t.Context(), cfg); err != nil {
+						t.Fatalf("repeated miss: %v", err)
+					}
+					compiled, _, err := r.Get(t.Context(), cfg)
+					if err != nil {
+						t.Fatalf("Get after failed miss refresh: %v", err)
+					}
+					if toolSearch && compiled.Tools()[0].Name != "fixture" {
+						t.Fatalf("catalog tool = %q, want previous snapshot", compiled.Tools()[0].Name)
+					}
+				}
+				if d.countValue() != 2 {
+					t.Fatalf("discoveries = %d, want initial catalog and one bounded miss refresh", d.countValue())
+				}
+			})
+		}
+	}
+}
+
+func TestSearchMissRefreshDoesNotBlockReaders(t *testing.T) {
+	d := &blockedRefreshDiscoverer{started: make(chan struct{}), release: make(chan struct{})}
+	r := catalog.NewRegistry(d)
+	defer r.Close()
+	var release sync.Once
+	defer release.Do(func() { close(d.release) })
+	cfg := &config.Config{ToolSearch: true, Servers: []config.Server{{Name: "fixture", URL: "https://example.invalid"}}}
+	if _, _, err := r.Get(t.Context(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	type result struct {
+		catalog *catalog.Catalog
+		err     error
+	}
+	missed := make(chan result, 1)
+	go func() {
+		compiled, err := r.RefreshOnMiss(t.Context(), cfg)
+		missed <- result{compiled, err}
+	}()
+	select {
+	case <-d.started:
+	case <-time.After(time.Second):
+		t.Fatal("miss refresh did not start")
+	}
+	for range 3 {
+		compiled, _, err := r.Get(t.Context(), cfg)
+		if err != nil || compiled.Tools()[0].Name != "first" {
+			t.Fatalf("reader during miss refresh = %v, %v; want current snapshot", compiled, err)
+		}
+	}
+	select {
+	case got := <-missed:
+		t.Fatalf("miss caller returned before discovery finished: %v", got.err)
+	default:
+	}
+	release.Do(func() { close(d.release) })
+	select {
+	case got := <-missed:
+		if got.err != nil || got.catalog.Tools()[0].Name != "second" {
+			t.Fatalf("miss caller = %v, %v; want refreshed catalog", got.catalog, got.err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("miss caller did not resume")
+	}
+}
+
+func TestSearchNotificationDuringMissRefreshBlocksReaders(t *testing.T) {
+	d := &blockedRefreshDiscoverer{started: make(chan struct{}), release: make(chan struct{})}
+	r := catalog.NewRegistry(d)
+	defer r.Close()
+	var release sync.Once
+	defer release.Do(func() { close(d.release) })
+	cfg := &config.Config{ToolSearch: true, Servers: []config.Server{{Name: "fixture", URL: "https://example.invalid"}}}
+	_, fingerprint, err := r.Get(t.Context(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _, _ = r.RefreshOnMiss(t.Context(), cfg) }()
+	select {
+	case <-d.started:
+	case <-time.After(time.Second):
+		t.Fatal("miss refresh did not start")
+	}
+	notified := make(chan bool, 1)
+	r.RequestRefresh(fingerprint, func(success bool) { notified <- success })
+
+	observed := &observedDoneContext{Context: t.Context(), observed: make(chan struct{})}
+	waiter := make(chan error, 1)
+	go func() {
+		compiled, _, err := r.Get(observed, cfg)
+		if err == nil && compiled.Tools()[0].Name != "second" {
+			err = errors.New("waiter received old catalog")
+		}
+		waiter <- err
+	}()
+	select {
+	case <-observed.observed:
+	case <-time.After(time.Second):
+		t.Fatal("reader did not wait for notification refresh")
+	}
+	release.Do(func() { close(d.release) })
+	if success := <-notified; !success {
+		t.Fatal("notification refresh failed")
+	}
+	select {
+	case err := <-waiter:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("reader did not resume")
+	}
+	d.mu.Lock()
+	calls := d.calls
+	d.mu.Unlock()
+	if calls != 3 {
+		t.Fatalf("discoveries = %d, want 3; notification did not rediscover after the miss", calls)
 	}
 }
 
@@ -753,7 +878,7 @@ func TestSearchMissRefreshReusesAwaitedRefresh(t *testing.T) {
 	}
 }
 
-func TestSearchCatalogWaitsForNotificationDuringMissBackoff(t *testing.T) {
+func TestSearchCatalogRefreshesOnNotificationAfterFailedMiss(t *testing.T) {
 	d := &mutableDiscoverer{name: "first"}
 	r := catalog.NewRegistry(d)
 	defer r.Close()
@@ -764,8 +889,8 @@ func TestSearchCatalogWaitsForNotificationDuringMissBackoff(t *testing.T) {
 	}
 	failure := errors.New("downstream unavailable")
 	d.set("first", failure)
-	if _, err := r.RefreshOnMiss(t.Context(), cfg); !errors.Is(err, failure) {
-		t.Fatalf("refresh error = %v, want %v", err, failure)
+	if _, err := r.RefreshOnMiss(t.Context(), cfg); err != nil {
+		t.Fatalf("failed miss refresh: %v", err)
 	}
 
 	d.set("second", nil)

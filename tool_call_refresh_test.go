@@ -180,34 +180,40 @@ func TestResolveToolCallCoalescesConcurrentMisses(t *testing.T) {
 	}
 }
 
-func TestResolveToolCallFailsClosedWhenRefreshFails(t *testing.T) {
+func TestResolveToolCallKeepsSnapshotWhenRefreshFails(t *testing.T) {
 	discoverer := &changingToolDiscoverer{tool: &mcp.Tool{Name: "delete_file", InputSchema: map[string]any{"type": "object"}}}
 	cfg := &config.Config{ToolSearch: true, Servers: []config.Server{{Name: "component", URL: "https://example.invalid"}}}
 	composite := &Composite{registry: catalog.NewRegistry(discoverer)}
 	defer composite.registry.Close()
-	if _, _, err := composite.registry.Get(t.Context(), cfg); err != nil {
-		t.Fatal(err)
-	}
-	failure := errors.New("discovery unavailable")
-	discoverer.setError(failure)
-	arguments, err := json.Marshal(toolsearch.CallArguments{Name: "new_tool", Revision: "new-revision"})
+	current, _, err := composite.registry.Get(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	call, ok, err := composite.ResolveToolCall(t.Context(), cfg, toolsearch.CallToolName, arguments)
-	if !errors.Is(err, failure) || ok || call.Route != nil {
-		t.Fatalf("failed refresh exposed a route: call=%#v ok=%t err=%v", call, ok, err)
+	_, revision, ok := current.RouteReference(toolsearch.Reference{Name: "delete_file"})
+	if !ok {
+		t.Fatal("catalog did not publish the tool")
 	}
-	if got := discoverer.count(); got != 2 {
-		t.Fatalf("discoveries = %d, want initial catalog and failed refresh", got)
+	failure := errors.New("discovery unavailable")
+	discoverer.setError(failure)
+	missing, err := json.Marshal(toolsearch.CallArguments{Name: "new_tool", Revision: "new-revision"})
+	if err != nil {
+		t.Fatal(err)
 	}
 	for range 3 {
-		call, ok, err := composite.ResolveToolCall(t.Context(), cfg, toolsearch.CallToolName, arguments)
-		if !errors.Is(err, catalog.ErrCatalogUnavailable) || ok || call.Route != nil {
-			t.Fatalf("failed refresh retry exposed a route: call=%#v ok=%t err=%v", call, ok, err)
+		call, ok, err := composite.ResolveToolCall(t.Context(), cfg, toolsearch.CallToolName, missing)
+		if err != nil || !ok || call.Result == nil || !call.Result.IsError || call.Route != nil {
+			t.Fatalf("failed refresh did not reject the missing tool: call=%#v ok=%t err=%v", call, ok, err)
 		}
 	}
 	if got := discoverer.count(); got != 2 {
-		t.Fatalf("failed refresh retried discovery %d times, want 2", got)
+		t.Fatalf("discoveries = %d, want initial catalog and one failed refresh", got)
+	}
+	known, err := json.Marshal(toolsearch.CallArguments{Name: "delete_file", Revision: revision, Arguments: json.RawMessage(`{}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call, ok, err := composite.ResolveToolCall(t.Context(), cfg, toolsearch.CallToolName, known)
+	if err != nil || !ok || call.Route == nil || call.Result != nil {
+		t.Fatalf("failed refresh broke a known tool: call=%#v ok=%t err=%v", call, ok, err)
 	}
 }
