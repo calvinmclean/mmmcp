@@ -54,6 +54,10 @@ func (c *Composite) featureMiddleware(server *mcp.Server) mcp.Middleware {
 				if err != nil {
 					return nil, err
 				}
+				values, err = projectTools(request, values)
+				if err != nil {
+					return nil, err
+				}
 				// Available tools depend on the request's selected configuration.
 				return &mcp.ListToolsResult{
 					CacheScope: "private",
@@ -146,7 +150,7 @@ func (c *Composite) callTool(ctx context.Context, request mcp.Request, compiled 
 		return nil, unknown("tool", req.Params.Name)
 	}
 	if call.Result != nil {
-		return normalizeCallToolResult(request, call.Result)
+		return normalizeCallToolResult(request, call.Result, nil)
 	}
 	route := *call.Route
 	ctx = component.ContextWithToolCall(ctx, route.Tool, call.Arguments)
@@ -167,7 +171,13 @@ func (c *Composite) callTool(ctx context.Context, request mcp.Request, compiled 
 	if err != nil {
 		return nil, err
 	}
-	return normalizeCallToolResult(request, compiled.RewriteCallToolResult(route.Prefix, result))
+	var outputSchema any
+	// Generic invocation advertises no output schema of its own. Its result
+	// projection must not impose the underlying tool's schema envelope.
+	if !c.configForRequest(ctx, request).ToolSearch {
+		outputSchema = route.Tool.OutputSchema
+	}
+	return normalizeCallToolResult(request, compiled.RewriteCallToolResult(route.Prefix, result), outputSchema)
 }
 
 func (c *Composite) getPrompt(ctx context.Context, request mcp.Request, compiled *catalog.Catalog, fingerprint string) (mcp.Result, error) {

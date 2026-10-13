@@ -18,7 +18,7 @@ func TestNormalizeOperationResultsForCurrentFrontendWire(t *testing.T) {
 			name: "tools/call",
 			normalize: func() (any, error) {
 				request := &mcp.ServerRequest[*mcp.CallToolParams]{Params: &mcp.CallToolParams{Meta: meta}}
-				return normalizeCallToolResult(request, &mcp.CallToolResult{Meta: downstreamServerMeta(), Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}})
+				return normalizeCallToolResult(request, &mcp.CallToolResult{Meta: downstreamServerMeta(), Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}, nil)
 			},
 		},
 		{
@@ -70,7 +70,7 @@ func TestNormalizeOperationResultsForLegacyFrontendWire(t *testing.T) {
 			normalize: func() (any, error) {
 				var downstream mcp.CallToolResult
 				unmarshalCurrentResult(t, &downstream)
-				return normalizeCallToolResult(&mcp.ServerRequest[*mcp.CallToolParams]{Params: &mcp.CallToolParams{}}, &downstream)
+				return normalizeCallToolResult(&mcp.ServerRequest[*mcp.CallToolParams]{Params: &mcp.CallToolParams{}}, &downstream, nil)
 			},
 		},
 		{

@@ -12,8 +12,19 @@ type operationResult interface {
 	NeedsInput() bool
 }
 
-func normalizeCallToolResult(request mcp.Request, result *mcp.CallToolResult) (*mcp.CallToolResult, error) {
-	return normalizeOperationResult(request, result, func() *mcp.CallToolResult { return new(mcp.CallToolResult) }, false)
+func normalizeCallToolResult(request mcp.Request, result *mcp.CallToolResult, outputSchema any) (*mcp.CallToolResult, error) {
+	projected, err := projectCallToolResult(request, result, outputSchema)
+	if err != nil || projected == nil {
+		return projected, err
+	}
+	normalized, err := normalizeOperationResult(request, projected, func() *mcp.CallToolResult { return new(mcp.CallToolResult) }, false)
+	// Unmarshalling into any collapses explicit null to nil. Retain null when
+	// the caller represented it (for example with json.RawMessage). An upstream
+	// null already collapsed by the SDK cannot be distinguished from absence.
+	if err == nil && normalized.StructuredContent == nil && projected.StructuredContent != nil {
+		normalized.StructuredContent = json.RawMessage("null")
+	}
+	return normalized, err
 }
 
 func normalizeGetPromptResult(request mcp.Request, result *mcp.GetPromptResult) (*mcp.GetPromptResult, error) {
