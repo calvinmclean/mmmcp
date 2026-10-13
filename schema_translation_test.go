@@ -111,6 +111,28 @@ func TestToolResultSchemaProjection(t *testing.T) {
 			structured: json.RawMessage(`{"ok":true}`),
 		},
 		{
+			name:       "true schema with object output",
+			schema:     `true`,
+			structured: json.RawMessage(`{"ok":true}`),
+		},
+		{
+			name:       "false schema with object output",
+			schema:     `false`,
+			structured: json.RawMessage(`{"ok":true}`),
+		},
+		{
+			name:       "true schema with array output",
+			schema:     `true`,
+			structured: json.RawMessage(`[1,2]`),
+			wrapped:    true,
+		},
+		{
+			name:       "false schema with primitive output",
+			schema:     `false`,
+			structured: json.RawMessage(`42`),
+			wrapped:    true,
+		},
+		{
 			name:       "explicit object schema",
 			schema:     `{"type":"object"}`,
 			structured: json.RawMessage(`{"ok":true}`),
@@ -296,5 +318,36 @@ func TestProjectToolsPreservesCatalog(t *testing.T) {
 	current, err := projectTools(modern, original)
 	if err != nil || current[0] != typeless {
 		t.Fatal("modern definitions were projected")
+	}
+}
+
+func TestProjectToolsPassesThroughNonObjectSchemas(t *testing.T) {
+	for _, raw := range []string{`true`, `false`, `"unknown"`, `[]`, `null`} {
+		t.Run(raw, func(t *testing.T) {
+			tools := []*mcp.Tool{
+				{
+					Name:         "unusual",
+					InputSchema:  map[string]any{"type": "object"},
+					OutputSchema: json.RawMessage(raw),
+				},
+				{
+					Name:         "valid",
+					InputSchema:  map[string]any{"type": "object"},
+					OutputSchema: map[string]any{"type": "object"},
+				},
+			}
+			before := string(mustJSON(t, tools))
+			request := &mcp.ListToolsRequest{Params: &mcp.ListToolsParams{}}
+			projected, err := projectTools(request, tools)
+			if err != nil {
+				t.Fatalf("one non-object schema broke listing: %v", err)
+			}
+			if len(projected) != 2 || projected[0] != tools[0] || projected[1] != tools[1] {
+				t.Fatal("non-object schema affected other tools or caused wrapping")
+			}
+			if string(mustJSON(t, projected)) != before || string(mustJSON(t, tools)) != before {
+				t.Fatal("schema pass-through changed the listing or catalog")
+			}
+		})
 	}
 }

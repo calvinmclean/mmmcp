@@ -41,6 +41,9 @@ func projectTools(request mcp.Request, tools []*mcp.Tool) ([]*mcp.Tool, error) {
 	return projected, nil
 }
 
+// outputSchemaObject only selects object-valued schemas for projection.
+// Other JSON values, including valid boolean schemas, retain their original
+// listing representation and do not require schema-based result wrapping.
 func outputSchemaObject(schema any) (map[string]any, error) {
 	if schema == nil {
 		return nil, nil
@@ -49,12 +52,13 @@ func outputSchemaObject(schema any) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	var object map[string]any
+	var decoded any
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
-	if err := decoder.Decode(&object); err != nil {
+	if err := decoder.Decode(&decoded); err != nil {
 		return nil, err
 	}
+	object, _ := decoded.(map[string]any)
 	return object, nil
 }
 
