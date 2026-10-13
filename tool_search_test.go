@@ -117,8 +117,18 @@ func TestToolSearchAndGenericInvocation(t *testing.T) {
 				t.Fatalf("browse failed: %v %+v", err, browsed)
 			}
 			var groups toolsearch.BrowseResults
-			if err := json.Unmarshal([]byte(browsed.Content[0].(*mcp.TextContent).Text), &groups); err != nil || len(groups.Components) != 1 || groups.Components[0].Name != "billing" || groups.Components[0].ToolCount != 1 || len(groups.Components[0].Tools) != 1 || groups.Components[0].Tools[0] != "lookup" {
+			if err := json.Unmarshal([]byte(browsed.Content[0].(*mcp.TextContent).Text), &groups); err != nil || len(groups.Components) != 1 || groups.Components[0].Name != "billing" || groups.Components[0].ToolCount != 1 || len(groups.Components[0].Tools) != 0 {
 				t.Fatalf("browse result: %v %+v", err, groups)
+			}
+			browsed, err = session.CallTool(t.Context(), &mcp.CallToolParams{
+				Name:      toolsearch.SearchToolName,
+				Arguments: map[string]any{"component": "billing"},
+			})
+			if err != nil || browsed.IsError {
+				t.Fatalf("component browse failed: %v %+v", err, browsed)
+			}
+			if err := json.Unmarshal([]byte(browsed.Content[0].(*mcp.TextContent).Text), &groups); err != nil || len(groups.Components) != 1 || len(groups.Components[0].Tools) != 1 || groups.Components[0].Tools[0] != "lookup" {
+				t.Fatalf("component browse result: %v %+v", err, groups)
 			}
 			described, err := session.CallTool(t.Context(), &mcp.CallToolParams{
 				Name:      toolsearch.SearchToolName,

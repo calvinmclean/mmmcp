@@ -97,8 +97,16 @@ func TestSearchUsesOnlyCompiledToolsAndStableReferences(t *testing.T) {
 		t.Fatalf("browse: %+v, %v", browsed, err)
 	}
 	groups := browsed.StructuredContent.(toolsearch.BrowseResults).Components
-	if len(groups) != 2 || groups[0].Name != "archive" || len(groups[0].Tools) != 1 || groups[0].Tools[0] != "archive__lookup" || groups[1].Name != "current" || len(groups[1].Tools) != 1 || groups[1].Tools[0] != "current__lookup" {
-		t.Fatalf("browse exposed wrong tools: %+v", groups)
+	if len(groups) != 2 || groups[0].Name != "archive" || groups[0].ToolCount != 1 || len(groups[0].Tools) != 0 || groups[1].Name != "current" || groups[1].ToolCount != 1 || len(groups[1].Tools) != 0 {
+		t.Fatalf("component browse: %+v", groups)
+	}
+	browsed, err = compiled.SearchTool(t.Context(), map[string]any{"component": "current"})
+	if err != nil || browsed.IsError {
+		t.Fatalf("component tool browse: %+v, %v", browsed, err)
+	}
+	groups = browsed.StructuredContent.(toolsearch.BrowseResults).Components
+	if len(groups) != 1 || groups[0].Name != "current" || len(groups[0].Tools) != 1 || groups[0].Tools[0] != "current__lookup" {
+		t.Fatalf("component browse exposed wrong tools: %+v", groups)
 	}
 	visible, _, err := compiled.PageTools("", 5)
 	if err != nil || len(visible) != 2 || !strings.Contains(visible[1].Description, "Available components: archive, current.") {

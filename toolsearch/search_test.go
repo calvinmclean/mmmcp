@@ -244,6 +244,9 @@ func TestSearchToolDefinitionAllowsUnboundedPositiveLimit(t *testing.T) {
 	if _, ok := properties["name"]; !ok {
 		t.Fatal("search tool does not expose exact lookup")
 	}
+	if _, ok := properties["component"]; !ok {
+		t.Fatal("search tool does not expose component browse")
+	}
 	if _, ok := properties["detail"]; ok {
 		t.Fatal("search tool still exposes browse detail")
 	}
@@ -281,12 +284,23 @@ func TestBrowseAndExactLookupBeforeIndexReady(t *testing.T) {
 		if len(browse.Components) != 2 || browse.Components[0].Name != "github" || browse.Components[0].ToolCount != 2 || browse.Components[1].Name != "gmail" || browse.Components[1].ToolCount != 1 {
 			t.Fatalf("browse(%v) = %+v", arguments, browse)
 		}
-		if got := browse.Components[0].Tools; len(got) != 2 || got[0] != "github__create_issue" || got[1] != "github__get_issue" {
+		if len(browse.Components[0].Tools) != 0 || len(browse.Components[1].Tools) != 0 {
 			t.Fatalf("browse(%v) = %+v", arguments, browse)
 		}
-		if got := browse.Components[1].Tools; len(got) != 1 || got[0] != "gmail__send" {
-			t.Fatalf("browse(%v) = %+v", arguments, browse)
+		if data, err := json.Marshal(browse); err != nil || strings.Contains(string(data), `"tools"`) {
+			t.Fatalf("component summary contains tool names: %s, %v", data, err)
 		}
+	}
+	github := call(map[string]any{"component": "github"}).StructuredContent.(BrowseResults)
+	if len(github.Components) != 1 || github.Components[0].Name != "github" || github.Components[0].ToolCount != 2 {
+		t.Fatalf("github browse = %+v", github)
+	}
+	if got := github.Components[0].Tools; len(got) != 2 || got[0] != "github__create_issue" || got[1] != "github__get_issue" {
+		t.Fatalf("github browse = %+v", github)
+	}
+	missingComponent := call(map[string]any{"component": "unknown"}).StructuredContent.(BrowseResults)
+	if len(missingComponent.Components) != 0 {
+		t.Fatalf("unknown component browse = %+v", missingComponent)
 	}
 
 	lookup := call(map[string]any{"name": "github__get_issue"}).StructuredContent.(Results)
@@ -304,10 +318,15 @@ func TestSearchModesRejectInvalidArguments(t *testing.T) {
 	for _, arguments := range []any{
 		map[string]any{"query": ""},
 		map[string]any{"name": ""},
+		map[string]any{"component": ""},
 		map[string]any{"query": "lookup", "name": "billing__lookup"},
+		map[string]any{"query": "lookup", "component": "billing"},
+		map[string]any{"name": "billing__lookup", "component": "billing"},
 		map[string]any{"limit": 2},
 		map[string]any{"name": "billing__lookup", "offset": 1},
+		map[string]any{"component": "billing", "offset": 1},
 		map[string]any{"name": nil},
+		map[string]any{"component": nil},
 		[]any{},
 	} {
 		result, err := index.Call(t.Context(), arguments)

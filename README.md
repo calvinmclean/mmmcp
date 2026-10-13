@@ -82,15 +82,16 @@ direct calls to component tools, even when their names are known. Search uses
 the same configured tool selection.
 
 Two tools are enabled when tool search is enabled:
-- `search_tools`: call without arguments to list all exposed tool names
-  grouped by component, with tool counts. Its tool description also names the
-  available components. Pass an exposed tool `name` for its exact definition,
-  schema, and call revision; an unknown name returns an empty `tools` list. Pass
-  a nonempty `query` to search
-  tool names, descriptions, component names, and input parameters with Bleve
-  BM25. Search and exact lookup return the effective tool definition, including
-  its input schema. A renamed tool uses its configured name, not its original
-  name. Search accepts an optional positive `limit` (default 5) and zero-based
+- `search_tools`: call without arguments to list component names and tool counts.
+  Pass `component` to list only that component's exposed tool names, without
+  schemas; an unknown component returns an empty `components` list. Its tool
+  description also names the available components. Pass an exposed tool `name`
+  for its exact definition, schema, and call revision; an unknown name returns
+  an empty `tools` list. Pass a nonempty `query` to search tool names,
+  descriptions, component names, and input parameters with Bleve BM25. Search
+  and exact lookup return the effective tool definition, including its input
+  schema. A renamed tool uses its configured name, not its original name.
+  Search accepts an optional positive `limit` (default 5) and zero-based
   `offset` (default 0). When `hasMore` is true, repeat the query with `offset`
   increased by `limit` to get the next page.
 - `call_tool` accepts the returned tool's `name`, `revision`, and `arguments`. It

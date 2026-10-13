@@ -71,7 +71,7 @@ type Results struct {
 type Component struct {
 	Name      string   `json:"name"`
 	ToolCount int      `json:"toolCount"`
-	Tools     []string `json:"tools"`
+	Tools     []string `json:"tools,omitempty"`
 }
 
 // BrowseResults lists the components with available tools.
@@ -125,7 +125,7 @@ func ParseCallArguments(arguments any) (CallArguments, error) {
 
 // Definitions returns the search and generic call MCP tool definitions.
 func Definitions(componentNames ...string) []*mcp.Tool {
-	description := "Discover available tools. Call with no arguments to list every tool name by component. Use query for ranked search, or name for an exact tool definition. Search and exact results include schemas and references for call_tool. Use offset to continue a query when hasMore is true."
+	description := "Discover available tools. Call with no arguments to list components and tool counts, or pass component to list its tool names. Use query for ranked search, or name for an exact tool definition. Search and exact results include schemas and references for call_tool. Use offset to continue a query when hasMore is true."
 	if len(componentNames) > 0 {
 		description += " Available components: " + strings.Join(componentNames, ", ") + "."
 	}
@@ -143,6 +143,10 @@ func Definitions(componentNames ...string) []*mcp.Tool {
 					"name": map[string]any{
 						"type":        "string",
 						"description": "Exact exposed tool name to describe, including its schema and call revision",
+					},
+					"component": map[string]any{
+						"type":        "string",
+						"description": "Exact component name to list its exposed tool names without schemas",
 					},
 					"limit": map[string]any{
 						"type":    "integer",
@@ -552,16 +556,21 @@ func (i *Index) Search(ctx context.Context, text string, limit, offset int) (Res
 }
 
 // browse reads the immutable allowed-tool snapshot without waiting for the text index.
-func (i *Index) browse() BrowseResults {
+func (i *Index) browse(componentName string) BrowseResults {
 	groups := make(map[string][]string)
 	for _, doc := range i.documents {
-		groups[doc.Component] = append(groups[doc.Component], doc.ExposedName)
+		if componentName == "" || doc.Component == componentName {
+			groups[doc.Component] = append(groups[doc.Component], doc.ExposedName)
+		}
 	}
 
 	results := BrowseResults{Components: make([]Component, 0, len(groups))}
 	for name, names := range groups {
-		slices.Sort(names)
-		component := Component{Name: name, ToolCount: len(names), Tools: names}
+		component := Component{Name: name, ToolCount: len(names)}
+		if componentName != "" {
+			slices.Sort(names)
+			component.Tools = names
+		}
 		results.Components = append(results.Components, component)
 	}
 	slices.SortFunc(results.Components, func(a, b Component) int { return strings.Compare(a.Name, b.Name) })
@@ -584,7 +593,7 @@ func (i *Index) lookup(name string) Results {
 
 // Call handles browse, search, and exact lookup arguments and result formatting.
 func (i *Index) Call(ctx context.Context, arguments any) (*mcp.CallToolResult, error) {
-	const invalid = "INVALID_ARGUMENTS: call without arguments to browse, use query for search, or name for exact lookup; limit and offset apply only to search"
+	const invalid = "INVALID_ARGUMENTS: call without arguments to browse components, or use component, query, or name; limit and offset apply only to search"
 	data, err := json.Marshal(arguments)
 	if err != nil {
 		return toolError(invalid), nil
@@ -594,24 +603,26 @@ func (i *Index) Call(ctx context.Context, arguments any) (*mcp.CallToolResult, e
 		return toolError(invalid), nil
 	}
 	var params struct {
-		Query  string `json:"query"`
-		Name   string `json:"name"`
-		Limit  int    `json:"limit"`
-		Offset int    `json:"offset"`
+		Query     string `json:"query"`
+		Name      string `json:"name"`
+		Component string `json:"component"`
+		Limit     int    `json:"limit"`
+		Offset    int    `json:"offset"`
 	}
 	if err := json.Unmarshal(data, &params); err != nil {
 		return toolError(invalid), nil
 	}
-	for _, field := range []string{"query", "name", "limit", "offset"} {
+	for _, field := range []string{"query", "name", "component", "limit", "offset"} {
 		if string(fields[field]) == "null" {
 			return toolError(invalid), nil
 		}
 	}
 	_, hasQuery := fields["query"]
 	_, hasName := fields["name"]
+	_, hasComponent := fields["component"]
 	_, hasLimit := fields["limit"]
 	_, hasOffset := fields["offset"]
-	if hasQuery && hasName || !hasQuery && (hasLimit || hasOffset) {
+	if hasQuery && hasName || hasComponent && (hasQuery || hasName) || !hasQuery && (hasLimit || hasOffset) {
 		return toolError(invalid), nil
 	}
 
@@ -637,8 +648,13 @@ func (i *Index) Call(ctx context.Context, arguments any) (*mcp.CallToolResult, e
 			return toolError(invalid), nil
 		}
 		result = i.lookup(params.Name)
+	case hasComponent:
+		if strings.TrimSpace(params.Component) == "" {
+			return toolError(invalid), nil
+		}
+		result = i.browse(params.Component)
 	default:
-		result = i.browse()
+		result = i.browse("")
 	}
 
 	output, err := json.Marshal(result)
